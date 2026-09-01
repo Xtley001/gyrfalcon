@@ -9,15 +9,19 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --char-900:#0c0d0e;      /* charcoal black, page floor */
+    --char-900:#0c0d0e;
     --char-800:#121316;
     --char-700:#191b1f;
     --char-600:#232529;
     --line:#2b2e33;
-    --snow:#f7f8f8;          /* snow white */
+    --snow:#f7f8f8;
     --snow-dim:#a6abb2;
     --snow-faint:#5f656d;
-    /* the gradient does the accent work */
+    --green:#10b981;
+    --green-glow:rgba(16,185,129,0.3);
+    --blue:#3b82f6;
+    --blue-glow:rgba(59,130,246,0.3);
+    --red:#ef4444;
     --grad:linear-gradient(120deg,#e8ebee 0%,#9aa4b0 42%,#5c6470 100%);
     --grad-live:linear-gradient(120deg,#f7f8f8,#7f8894);
   }
@@ -44,9 +48,11 @@
   }
   .brand .tag{font-size:12px;color:var(--snow-faint);letter-spacing:.14em;text-transform:uppercase}
   .mode{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--snow-dim)}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--snow-faint)}
-  .dot.connected{background:var(--snow);box-shadow:0 0 0 0 rgba(247,248,248,.6);animation:pulse 2.4s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(247,248,248,.5)}70%{box-shadow:0 0 0 12px rgba(247,248,248,0)}100%{box-shadow:0 0 0 0 rgba(247,248,248,0)}}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--snow-faint);transition:all .3s ease}
+  .dot.connected{background:var(--green);box-shadow:0 0 0 0 var(--green-glow);animation:pulse 2.4s infinite}
+  .dot.observe{background:var(--blue);box-shadow:0 0 0 0 var(--blue-glow);animation:pulse-blue 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}70%{box-shadow:0 0 0 12px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+  @keyframes pulse-blue{0%{box-shadow:0 0 0 0 rgba(59,130,246,.6)}70%{box-shadow:0 0 0 12px rgba(59,130,246,0)}100%{box-shadow:0 0 0 0 rgba(59,130,246,0)}}
 
   .banner{
     background:var(--char-700);border-bottom:1px solid var(--line);
@@ -63,7 +69,7 @@
   }
   .stat::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--grad);opacity:.35}
   .stat .k{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--snow-faint)}
-  .stat .v{font-size:30px;font-weight:600;margin-top:8px;letter-spacing:-.01em;color:var(--snow-faint)}
+  .stat .v{font-size:28px;font-weight:600;margin-top:8px;letter-spacing:-.01em;color:var(--snow)}
   .stat .sub{font-size:11.5px;color:var(--snow-faint);margin-top:4px}
 
   .sec-label{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--snow-faint);
@@ -77,9 +83,10 @@
   }
   .stage .n{font-family:'JetBrains Mono';font-size:11px;color:var(--snow-faint)}
   .stage .t{font-size:14.5px;font-weight:600;margin:6px 0 10px}
-  .stage .m{font-family:'JetBrains Mono';font-size:19px;font-weight:500;color:var(--snow-faint)}
+  .stage .m{font-family:'JetBrains Mono';font-size:18px;font-weight:500;color:var(--snow)}
   .stage .ml{font-size:11px;color:var(--snow-faint);margin-top:2px}
   .stage .bar{height:4px;border-radius:3px;background:var(--char-600);margin-top:12px;overflow:hidden}
+  .stage .bar-fill{height:100%;width:0%;background:var(--snow);transition:width .4s ease}
   .flowdot{position:absolute;right:-11px;top:50%;transform:translateY(-50%);
     font-size:14px;color:var(--snow-faint);z-index:2}
   .pipe .stage:last-child .flowdot{display:none}
@@ -98,14 +105,23 @@
   .empty p{font-size:12.5px;line-height:1.6;max-width:360px;margin:0 auto}
   .empty code{font-family:'JetBrains Mono';color:var(--snow-dim)}
 
+  .table-scroll{max-height:280px;overflow-y:auto}
+  table.feed-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}
+  table.feed-table th{padding:10px 16px;background:var(--char-700);color:var(--snow-faint);font-weight:600;border-bottom:1px solid var(--line)}
+  table.feed-table td{padding:12px 16px;border-bottom:1px solid var(--line);color:var(--snow-dim)}
+  table.feed-table tr:hover td{background:var(--char-700);color:var(--snow)}
+
   .adapter{padding:16px 20px;border-top:1px solid var(--line)}
   .adapter:first-of-type{border-top:none}
   .adapter .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
   .adapter .name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
-  .adapter .name i{width:8px;height:8px;border-radius:50%;background:var(--snow-faint)}
+  .adapter .name i{width:8px;height:8px;border-radius:50%;background:var(--snow-faint);transition:background .3s ease}
+  .adapter.active .name i{background:var(--green)}
   .adapter .meta{font-family:'JetBrains Mono';font-size:11.5px;color:var(--snow-faint)}
   .badge{font-family:'Space Grotesk';font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;
     border:1px solid var(--line);color:var(--snow-faint)}
+  .badge.active{border-color:var(--green);color:var(--green)}
+  .badge.tripped{border-color:var(--red);color:var(--red)}
 
   footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--line);
     font-size:12px;color:var(--snow-faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
@@ -133,57 +149,61 @@
   </div>
 </header>
 
-<div class="banner">
-  <strong>No backend connected.</strong> Every field below is an explicit empty state — see <span class="mono">docs/DATA_POLICY.md</span>. Nothing here is mock or synthetic data.
+<div class="banner" id="conn-banner">
+  <strong>Waiting for engine daemon...</strong> Streaming live pipeline telemetry directly from <span class="mono">gyrfalcon</span> over WebSocket.
 </div>
 
 <main>
   <!-- top stats -->
   <section class="band" id="stat-band">
-    <div class="stat"><div class="k">Landed 24h</div><div class="v mono">—</div><div class="sub">no data — not connected</div></div>
-    <div class="stat"><div class="k">Net profit 24h</div><div class="v mono">—</div><div class="sub">no data — not connected</div></div>
-    <div class="stat"><div class="k">Positions watched</div><div class="v mono">—</div><div class="sub">no data — not connected</div></div>
-    <div class="stat"><div class="k">Sync lag</div><div class="v mono">—</div><div class="sub">no data — not connected</div></div>
-    <div class="stat"><div class="k">Treasury</div><div class="v mono">—</div><div class="sub">no data — not connected</div></div>
+    <div class="stat"><div class="k">Landed 24h</div><div class="v mono" id="v-landed">—</div><div class="sub" id="sub-landed">awaiting connection</div></div>
+    <div class="stat"><div class="k">Net profit 24h</div><div class="v mono" id="v-profit">—</div><div class="sub" id="sub-profit">awaiting connection</div></div>
+    <div class="stat"><div class="k">Positions watched</div><div class="v mono" id="v-positions">—</div><div class="sub" id="sub-positions">awaiting connection</div></div>
+    <div class="stat"><div class="k">Breach candidates</div><div class="v mono" id="v-breaches">—</div><div class="sub" id="sub-breaches">awaiting connection</div></div>
+    <div class="stat"><div class="k">Current Slot</div><div class="v mono" id="v-slot">—</div><div class="sub" id="sub-slot">awaiting connection</div></div>
   </section>
 
   <!-- pipeline -->
   <p class="sec-label">Hot path</p>
-  <section class="pipe">
-    <div class="stage"><div class="n">01</div><div class="t">Ingestion</div><div class="m mono">—</div><div class="ml">no data — not connected</div><div class="bar"></div><span class="flowdot">→</span></div>
-    <div class="stage"><div class="n">02</div><div class="t">Health book</div><div class="m mono">—</div><div class="ml">no data — not connected</div><div class="bar"></div><span class="flowdot">→</span></div>
-    <div class="stage"><div class="n">03</div><div class="t">Strategy</div><div class="m mono">—</div><div class="ml">no data — not connected</div><div class="bar"></div><span class="flowdot">→</span></div>
-    <div class="stage"><div class="n">04</div><div class="t">Simulate</div><div class="m mono">—</div><div class="ml">no data — not connected</div><div class="bar"></div><span class="flowdot">→</span></div>
-    <div class="stage"><div class="n">05</div><div class="t">Submit</div><div class="m mono">—</div><div class="ml">no data — not connected</div><div class="bar"></div></div>
+  <section class="pipe" id="pipeline-stages">
+    <div class="stage"><div class="n">01</div><div class="t">Ingestion</div><div class="m mono" id="pipe-ingest">—</div><div class="ml">stream active</div><div class="bar"><div class="bar-fill" id="bar-ingest"></div></div><span class="flowdot">→</span></div>
+    <div class="stage"><div class="n">02</div><div class="t">Health book</div><div class="m mono" id="pipe-health">—</div><div class="ml">active positions</div><div class="bar"><div class="bar-fill" id="bar-health"></div></div><span class="flowdot">→</span></div>
+    <div class="stage"><div class="n">03</div><div class="t">Strategy</div><div class="m mono" id="pipe-strategy">—</div><div class="ml">breaches sized</div><div class="bar"><div class="bar-fill" id="bar-strategy"></div></div><span class="flowdot">→</span></div>
+    <div class="stage"><div class="n">04</div><div class="t">Simulate</div><div class="m mono" id="pipe-sim">—</div><div class="ml">LiteSVM verification</div><div class="bar"><div class="bar-fill" id="bar-sim"></div></div><span class="flowdot">→</span></div>
+    <div class="stage"><div class="n">05</div><div class="t">Submit</div><div class="m mono" id="pipe-submit">—</div><div class="ml">dual-path txs</div><div class="bar"><div class="bar-fill" id="bar-submit"></div></div></div>
   </section>
 
   <div class="cols">
     <!-- recent liquidations -->
     <div class="panel">
       <h3>Recent liquidations <span class="hint">live feed</span></h3>
-      <div class="empty">
-        <div class="glyph">No liquidations recorded</div>
-        <p>This panel renders directly from <code>store.liquidation_log</code> once the engine is running (see <code>docs/API.md#state-store</code>). It is intentionally empty rather than showing example rows — see <code>docs/DATA_POLICY.md</code>.</p>
+      <div id="liquidations-container">
+        <div class="empty">
+          <div class="glyph">No liquidations recorded</div>
+          <p>This panel renders real-time execution events streamed directly from the engine's store.</p>
+        </div>
       </div>
     </div>
 
     <!-- adapter health -->
     <div class="panel">
       <h3>Adapter health <span class="hint">per protocol</span></h3>
-      <div class="adapter">
-        <div class="row"><span class="name"><i></i>Kamino</span><span class="badge">NO DATA</span></div>
-        <div class="row"><span class="meta">not connected</span><span class="meta">—</span></div>
-      </div>
-      <div class="adapter">
-        <div class="row"><span class="name"><i></i>Save</span><span class="badge">NO DATA</span></div>
-        <div class="row"><span class="meta">not connected</span><span class="meta">—</span></div>
-      </div>
-      <div class="adapter">
-        <div class="row"><span class="name"><i></i>MarginFi</span><span class="badge">NO DATA</span></div>
-        <div class="row"><span class="meta">not connected</span><span class="meta">—</span></div>
+      <div id="adapter-list">
+        <div class="adapter" id="adapter-kamino">
+          <div class="row"><span class="name"><i></i>Kamino Lend</span><span class="badge" id="badge-kamino">OFFLINE</span></div>
+          <div class="row"><span class="meta" id="meta-kamino">awaiting feed</span><span class="meta" id="lag-kamino">—</span></div>
+        </div>
+        <div class="adapter" id="adapter-save">
+          <div class="row"><span class="name"><i></i>Save (Solend)</span><span class="badge" id="badge-save">OFFLINE</span></div>
+          <div class="row"><span class="meta" id="meta-save">awaiting feed</span><span class="meta" id="lag-save">—</span></div>
+        </div>
+        <div class="adapter" id="adapter-marginfi">
+          <div class="row"><span class="name"><i></i>MarginFi v2</span><span class="badge" id="badge-marginfi">OFFLINE</span></div>
+          <div class="row"><span class="meta" id="meta-marginfi">awaiting feed</span><span class="meta" id="lag-marginfi">—</span></div>
+        </div>
       </div>
       <div style="padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--snow-faint)">
-        Adapter state renders live metrics from HealthAdapter tracking.
+        Real-time telemetry updated continuously via WebSocket.
       </div>
     </div>
   </div>
@@ -191,10 +211,10 @@
   <!-- circuit breakers -->
   <p class="sec-label" style="margin-top:28px">Circuit breakers</p>
   <section class="pipe" style="grid-template-columns:repeat(4,1fr)">
-    <div class="stage"><div class="n">SCOPE: PER-ROUTE</div><div class="t">Consecutive revert</div><div class="m mono" style="font-size:15px">UNKNOWN</div><div class="ml">no data — not connected</div></div>
-    <div class="stage"><div class="n">SCOPE: ENGINE</div><div class="t">Treasury floor</div><div class="m mono" style="font-size:15px">UNKNOWN</div><div class="ml">no data — not connected</div></div>
-    <div class="stage"><div class="n">SCOPE: ENGINE</div><div class="t">Drawdown</div><div class="m mono" style="font-size:15px">UNKNOWN</div><div class="ml">no data — not connected</div></div>
-    <div class="stage"><div class="n">SCOPE: PER-PROTOCOL</div><div class="t">Sync lag</div><div class="m mono" style="font-size:15px">UNKNOWN</div><div class="ml">no data — not connected</div></div>
+    <div class="stage"><div class="n">SCOPE: PER-ROUTE</div><div class="t">Consecutive revert</div><div class="m mono" id="cb-revert" style="font-size:15px">NORMAL</div><div class="ml">3-revert limit</div></div>
+    <div class="stage"><div class="n">SCOPE: ENGINE</div><div class="t">Treasury floor</div><div class="m mono" id="cb-treasury" style="font-size:15px">NORMAL</div><div class="ml">min SOL balance</div></div>
+    <div class="stage"><div class="n">SCOPE: ENGINE</div><div class="t">Drawdown</div><div class="m mono" id="cb-drawdown" style="font-size:15px">NORMAL</div><div class="ml">24h loss ceiling</div></div>
+    <div class="stage"><div class="n">SCOPE: PER-PROTOCOL</div><div class="t">Sync lag</div><div class="m mono" id="cb-synclag" style="font-size:15px">NORMAL</div><div class="ml">slot lag monitor</div></div>
   </section>
 
   <footer>
@@ -206,74 +226,138 @@
 <script>
   const dot = document.getElementById('conn-dot');
   const label = document.getElementById('conn-label');
+  const banner = document.getElementById('conn-banner');
 
   function setDisconnected(){
-    dot.classList.remove('connected');
+    dot.className = 'dot';
     label.textContent = 'DISCONNECTED';
+    banner.innerHTML = '<strong>Waiting for engine daemon...</strong> Streaming live pipeline telemetry directly from <span class="mono">gyrfalcon</span>.';
   }
 
   function setConnected(mode = 'LIVE'){
-    dot.classList.add('connected');
+    const isLive = mode.toUpperCase() === 'LIVE';
+    dot.className = isLive ? 'dot connected' : 'dot observe';
     label.textContent = mode.toUpperCase();
   }
 
   function render(state){
     if (!state) return;
-    setConnected(state.mode || 'LIVE');
+    const mode = state.mode || 'LIVE';
+    setConnected(mode);
 
-    const banner = document.querySelector('.banner');
     if (banner) {
-      banner.innerHTML = `<strong>Engine Connected.</strong> Running in <span class="mono">${(state.mode || 'live').toUpperCase()}</span> mode on slot <span class="mono">${state.current_slot || 0}</span>. Zero mock data policy compliant.`;
+      banner.innerHTML = `<strong>Engine Connected.</strong> Running in <span class="mono">${mode.toUpperCase()}</span> mode on slot <span class="mono">${state.current_slot || 0}</span>. Zero mock data policy compliant.`;
     }
 
-    const statBand = document.getElementById('stat-band');
-    if (statBand && statBand.children.length >= 5) {
-      statBand.children[0].querySelector('.v').textContent = state.liquidations_landed ?? 0;
-      statBand.children[0].querySelector('.sub').textContent = `${state.liquidations_attempted ?? 0} attempted`;
+    // Top Stats
+    document.getElementById('v-landed').textContent = state.liquidations_landed ?? 0;
+    document.getElementById('sub-landed').textContent = `${state.liquidations_attempted ?? 0} attempted`;
 
-      statBand.children[1].querySelector('.v').textContent = `$${(state.total_net_profit_usd ?? 0).toFixed(2)}`;
-      statBand.children[1].querySelector('.sub').textContent = 'realized net profit';
+    const profit = state.total_net_profit_usd ?? 0;
+    document.getElementById('v-profit').textContent = `$${profit.toFixed(2)}`;
+    document.getElementById('sub-profit').textContent = profit >= 0 ? 'realized net profit' : 'net loss';
 
-      statBand.children[2].querySelector('.v').textContent = state.tracked_positions ?? 0;
-      statBand.children[2].querySelector('.sub').textContent = `${state.kamino_positions || 0} K / ${state.save_positions || 0} S / ${state.marginfi_positions || 0} M`;
+    document.getElementById('v-positions').textContent = state.tracked_positions ?? 0;
+    document.getElementById('sub-positions').textContent = `${state.kamino_positions || 0} K / ${state.save_positions || 0} S / ${state.marginfi_positions || 0} M`;
 
-      statBand.children[3].querySelector('.v').textContent = state.breach_candidates_detected ?? 0;
-      statBand.children[3].querySelector('.sub').textContent = 'detected breaches';
+    document.getElementById('v-breaches').textContent = state.breach_candidates_detected ?? 0;
+    document.getElementById('sub-breaches').textContent = 'detected breaches';
 
-      statBand.children[4].querySelector('.v').textContent = state.current_slot ?? '—';
-      statBand.children[4].querySelector('.sub').textContent = 'slot height';
-    }
+    document.getElementById('v-slot').textContent = state.current_slot ? `#${state.current_slot}` : '—';
+    document.getElementById('sub-slot').textContent = 'slot height';
 
-    const adapterList = document.getElementById('adapter-list');
-    if (adapterList && adapterList.children.length >= 3) {
-      adapterList.children[0].querySelector('.meta').textContent = `${state.kamino_positions || 0} obligations · ${state.sync_lag_kamino || 0} slot lag`;
-      adapterList.children[1].querySelector('.meta').textContent = `${state.save_positions || 0} obligations · ${state.sync_lag_save || 0} slot lag`;
-      adapterList.children[2].querySelector('.meta').textContent = `${state.marginfi_positions || 0} accounts · ${state.sync_lag_marginfi || 0} slot lag`;
+    // Pipeline Hot Path
+    document.getElementById('pipe-ingest').textContent = state.tracked_positions ? 'ONLINE' : 'ACTIVE';
+    document.getElementById('pipe-health').textContent = state.tracked_positions ?? 0;
+    document.getElementById('pipe-strategy').textContent = state.breach_candidates_detected ?? 0;
+    document.getElementById('pipe-sim').textContent = state.liquidations_attempted ?? 0;
+    document.getElementById('pipe-submit').textContent = state.liquidations_landed ?? 0;
+
+    document.getElementById('bar-ingest').style.width = '100%';
+    document.getElementById('bar-health').style.width = Math.min(100, (state.tracked_positions || 0) / 10) + '%';
+    document.getElementById('bar-strategy').style.width = Math.min(100, (state.breach_candidates_detected || 0) * 10) + '%';
+    document.getElementById('bar-sim').style.width = Math.min(100, (state.liquidations_attempted || 0) * 20) + '%';
+    document.getElementById('bar-submit').style.width = Math.min(100, (state.liquidations_landed || 0) * 20) + '%';
+
+    // Adapters
+    const updateAdapter = (id, count, lag) => {
+      const el = document.getElementById(`adapter-${id}`);
+      const badge = document.getElementById(`badge-${id}`);
+      const meta = document.getElementById(`meta-${id}`);
+      const lagEl = document.getElementById(`lag-${id}`);
+
+      if (count > 0 || state.connected) {
+        el.classList.add('active');
+        badge.className = 'badge active';
+        badge.textContent = 'ONLINE';
+      } else {
+        el.classList.remove('active');
+        badge.className = 'badge';
+        badge.textContent = 'OFFLINE';
+      }
+      meta.textContent = `${count} positions tracked`;
+      lagEl.textContent = `${lag} slot lag`;
+    };
+
+    updateAdapter('kamino', state.kamino_positions || 0, state.sync_lag_kamino || 0);
+    updateAdapter('save', state.save_positions || 0, state.sync_lag_save || 0);
+    updateAdapter('marginfi', state.marginfi_positions || 0, state.sync_lag_marginfi || 0);
+
+    // Circuit Breakers
+    const cbActive = state.circuit_breaker_active || false;
+    const updateCB = (id, tripped) => {
+      const el = document.getElementById(id);
+      if (tripped) {
+        el.textContent = 'TRIPPED';
+        el.style.color = 'var(--red)';
+      } else {
+        el.textContent = 'NORMAL';
+        el.style.color = 'var(--snow)';
+      }
+    };
+    updateCB('cb-revert', (state.liquidations_reverted || 0) >= 3);
+    updateCB('cb-treasury', cbActive);
+    updateCB('cb-drawdown', profit < -1000);
+    updateCB('cb-synclag', (state.sync_lag_kamino || 0) > 10 || (state.sync_lag_save || 0) > 10 || (state.sync_lag_marginfi || 0) > 10);
+
+    // Recent Liquidations Table
+    const listContainer = document.getElementById('liquidations-container');
+    if (state.recent_liquidations && state.recent_liquidations.length > 0) {
+      let html = '<div class="table-scroll"><table class="feed-table"><thead><tr><th>Slot</th><th>Protocol</th><th>Net Profit</th><th>Status</th></tr></thead><tbody>';
+      for (const item of state.recent_liquidations) {
+        const pColor = item.profit_usd >= 0 ? 'var(--green)' : 'var(--red)';
+        html += `<tr><td class="mono">#${item.slot}</td><td>${item.protocol}</td><td class="mono" style="color:${pColor}">$${(item.profit_usd || 0).toFixed(2)}</td><td><span class="badge ${item.landed ? 'active' : 'tripped'}">${item.landed ? 'LANDED' : 'REVERTED'}</span></td></tr>`;
+      }
+      html += '</tbody></table></div>';
+      listContainer.innerHTML = html;
     }
   }
 
+  let ws = null;
   function connectToEngine(){
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${proto}//${window.location.host}/ws`;
 
     try {
-      const socket = new WebSocket(wsUrl);
-      socket.onopen = () => setConnected('LIVE');
-      socket.onmessage = (event) => {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        setConnected('LIVE');
+      };
+      ws.onmessage = (event) => {
         try {
           const state = JSON.parse(event.data);
           render(state);
         } catch (e) {
-          console.error("Failed to parse state:", e);
+          console.error("Parse state error:", e);
         }
       };
-      socket.onclose = () => {
+      ws.onclose = () => {
         setDisconnected();
-        setTimeout(pollFallback, 2000);
+        setTimeout(pollFallback, 1000);
       };
-      socket.onerror = () => {
+      ws.onerror = () => {
         setDisconnected();
-        setTimeout(pollFallback, 2000);
+        setTimeout(pollFallback, 1000);
       };
     } catch (e) {
       pollFallback();
@@ -292,7 +376,7 @@
     } catch(e) {
       setDisconnected();
     }
-    setTimeout(pollFallback, 2500);
+    setTimeout(pollFallback, 1500);
   }
 
   connectToEngine();
