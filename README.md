@@ -7,7 +7,7 @@ A multi-protocol Solana liquidation engine covering Kamino, Save, and MarginFi.
 [![Rust: 2021/2024](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org)
 [![Security Policy](https://img.shields.io/badge/security-policy-green.svg)](./SECURITY.md)
 
-`gyrfalcon` is an ultra-low-latency liquidation engine engineered for Solana's primary lending markets (**Kamino Lend**, **Save / Solend**, and **MarginFi v2**). It unifies Yellowstone gRPC streaming, in-memory account decoding, zero-risk flash loan routing, in-process LiteSVM transaction simulation, and parallel dual-path submission (Staked QUIC + Jito Block Engine). For full mathematical derivations and invariant proofs, see the [whitepaper](./docs/whitepaper.md).
+`gyrfalcon` is an ultra-low-latency liquidation engine engineered for Solana's primary lending markets (**Kamino Lend**, **Save / Solend**, and **MarginFi v2**). It unifies Yellowstone gRPC streaming, in-memory account decoding, zero-risk flash loan routing, in-process LiteSVM transaction simulation, and parallel dual-path submission (Staked QUIC + Jito Block Engine).
 
 ## Quickstart
 
@@ -85,23 +85,9 @@ cargo run --bin cu-profile
 cargo run --bin readiness-check
 ```
 
-## Documentation Reference
-
-| Document | Description |
-|---|---|
-| [`docs/whitepaper.md`](./docs/whitepaper.md) | Mathematical liquidation mechanics, profitability model, and invariant proofs |
-| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Component architecture, latency hot-paths, and fault isolation |
-| [`docs/STRATEGY.md`](./docs/STRATEGY.md) | Sizing mechanics, dynamic tip curve, contention modeling, and circuit breakers |
-| [`docs/API.md`](./docs/API.md) | Trait definitions, event bus message contracts, and data types |
-| [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md) | Comprehensive configuration guide for mainnet and devnet |
-| [`docs/RUNBOOK.md`](./docs/RUNBOOK.md) | Deployment phases, manual kill-switch operation, and production checklist |
-| [`docs/TESTING.md`](./docs/TESTING.md) | Historical replay, LiteSVM profiling, and simulation test harnesses |
-| [`docs/DECISIONS.md`](./docs/DECISIONS.md) | Architectural Decision Records (ADRs) |
-| [`docs/BUILD_ORDER.md`](./docs/BUILD_ORDER.md) | Implementation roadmap and staged deliverables |
-
 ## Security
 
-Report vulnerabilities according to our [Security Policy](./SECURITY.md). Do not deploy live capital without completing the [Production Readiness Checklist](./docs/RUNBOOK.md#production-readiness-checklist).
+Report suspected vulnerabilities according to our [Security Policy](./SECURITY.md). Test all integrations thoroughly in observe mode before deploying live capital.
 
 ## Contributing
 

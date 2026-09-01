@@ -1,26 +1,6 @@
 //! `cargo run --bin readiness-check [-- --config path/to/gyrfalcon.toml]`
 //!
-//! Turns `docs/RUNBOOK.md#production-readiness-checklist`'s 12 items into
-//! a runnable command instead of a markdown list someone has to remember
-//! to eyeball before promoting to `live`.
-//!
-//! Every item falls into one of three buckets:
-//! - **Verified** — this tool checked it directly (config presence,
-//!   evidence files existing, etc.) and it passed.
-//! - **Manual** — requires live program state, a human judgment call, or
-//!   infrastructure this tool has no way to reach (leased endpoints,
-//!   devnet, a funded wallet). Checked off by a human, not this binary.
-//! - **Missing** — a genuine gap in the current codebase, not yet
-//!   implemented. Distinct from "Manual": this is something the codebase
-//!   itself should eventually do automatically and currently doesn't
-//!   (e.g. no oracle-staleness handling exists in any adapter yet, no ATA
-//!   pre-provisioning code exists yet). Flagging these as their own
-//!   category rather than folding them into "Manual" is the point of this
-//!   tool — a human re-reading RUNBOOK.md's checklist by eye could easily
-//!   mistake "nobody's built this" for "somebody should go check this."
-//!
-//! This tool refuses to report `submit.mode = live` as ready when any
-//! item is not `Verified` — see [`main`]'s exit code.
+//! Evaluates the 12 production readiness checklist items before promoting to `live` mode.
 
 use gyrfalcon_config::Config;
 use std::path::PathBuf;
@@ -234,7 +214,7 @@ fn main() -> std::process::ExitCode {
     results.push(check_cu_table());
     results.extend(static_checklist_items());
 
-    println!("gyrfalcon production readiness — docs/RUNBOOK.md#production-readiness-checklist\n");
+    println!("gyrfalcon production readiness verification\n");
     let mut verified = 0;
     let mut manual = 0;
     let mut missing = 0;
@@ -254,10 +234,7 @@ fn main() -> std::process::ExitCode {
 
     if missing > 0 || manual > 0 {
         println!(
-            "\nNOT READY for submit.mode = live: every item must be VERIFIED, per \
-             docs/BUILD_ORDER.md's Stage D exit criteria — this checklist passing, and \
-             Phase 0 observe data showing net profitability, not just this repo's tests \
-             being green."
+            "\nNOT READY for submit.mode = live: every item must be VERIFIED before promoting to live submission."
         );
         std::process::ExitCode::FAILURE
     } else {

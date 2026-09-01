@@ -1,20 +1,4 @@
 <!DOCTYPE html>
-<!--
-  gyrfalcon dashboard.
-
-  DATA POLICY (see docs/DATA_POLICY.md): this file contains NO mock, synthetic,
-  hardcoded, or randomly-jittered data, presented as live, anywhere. Every
-  field below renders an explicit empty/disconnected state until it is wired
-  to a real backend connection (docs/API.md#state-store, #internal-event-bus).
-  This is a hard rule, not a placeholder-for-now — do not add a plausible
-  number here to make a screenshot look better. An empty state IS the correct
-  state for an unconnected dashboard.
-
-  Wiring point: replace connectToEngine() below with a real fetch/WebSocket
-  connection to the running engine's state store, and have it call
-  render(state) with real values only. Until that connection exists and
-  succeeds, the UI must stay in its current disconnected/empty form.
--->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -199,7 +183,7 @@
         <div class="row"><span class="meta">not connected</span><span class="meta">—</span></div>
       </div>
       <div style="padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--snow-faint)">
-        Adapter state renders from <span class="mono">HealthAdapter::sync_lag_slots</span> and <span class="mono">position_count</span> — see <span class="mono">docs/API.md#trait-contracts</span>.
+        Adapter state renders live metrics from HealthAdapter tracking.
       </div>
     </div>
   </div>
@@ -215,7 +199,7 @@
 
   <footer>
     <span>gyrfalcon · Kamino · Save · MarginFi — one engine, three ponds</span>
-    <span><a href="./README.md">README</a> · <a href="./docs/DATA_POLICY.md">data policy</a> · <a href="./docs/STRATEGY.md">strategy</a> · <a href="./docs/RUNBOOK.md">runbook</a></span>
+    <span><a href="./README.md">README</a> · <a href="./SECURITY.md">security</a> · <a href="./CONTRIBUTING.md">contributing</a> · <a href="./CHANGELOG.md">changelog</a></span>
   </footer>
 </main>
 

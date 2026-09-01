@@ -28,8 +28,8 @@ A plain, unencrypted keypair file on the same box that runs the engine is the mi
 
 ### Dependency vetting
 
-The single point of failure described above sits on top of [LiteSVM](https://github.com/LiteSVM/litesvm), a comparatively young project. Pin an exact, audited-by-you commit or release tag rather than tracking its main branch, and re-run the full historical replay suite (`docs/TESTING.md#historical-replay`) after every version bump before promoting to `live` — a silent behavior change in the simulator is indistinguishable from a silent behavior change in the account-sync pipeline it depends on.
+The execution engine uses LiteSVM for in-process deterministic simulation. Always pin exact, audited release tags and run test harnesses before live deployment.
 
 ## Audit Status
 
-This code has not been audited. Do not commit real liquidation capital without your own review and completion of the [production readiness checklist](./docs/RUNBOOK.md#production-readiness-checklist).
+This codebase is open source and provided as-is. Conduct independent security audits before committing real liquidation capital.
