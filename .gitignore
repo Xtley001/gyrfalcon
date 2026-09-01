@@ -1,0 +1,5 @@
+/target
+config/gyrfalcon.toml
+*.pem
+*.zip
+/secrets/

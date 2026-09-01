@@ -1,0 +1,11 @@
+[package]
+name = "gyrfalcon-strategy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sizing, arbitration, static tip floor, and treasury checks — docs/STRATEGY.md, Stage B item 8 (minimum viable)."
+
+[dependencies]
+gyrfalcon-core.workspace = true
+gyrfalcon-config.workspace = true
+thiserror.workspace = true

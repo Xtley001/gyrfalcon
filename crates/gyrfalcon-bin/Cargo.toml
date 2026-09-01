@@ -1,0 +1,36 @@
+[package]
+name = "gyrfalcon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A multi-protocol Solana liquidation bot covering Kamino, Save, and MarginFi."
+
+[[bin]]
+name = "gyrfalcon"
+path = "src/main.rs"
+
+[[bin]]
+name = "readiness-check"
+path = "src/bin/readiness-check.rs"
+
+[dependencies]
+gyrfalcon-config.workspace = true
+gyrfalcon-core.workspace = true
+gyrfalcon-health.workspace = true
+gyrfalcon-ingestion.workspace = true
+gyrfalcon-router.workspace = true
+gyrfalcon-strategy.workspace = true
+gyrfalcon-sim.workspace = true
+gyrfalcon-bundler.workspace = true
+gyrfalcon-submit.workspace = true
+gyrfalcon-treasury.workspace = true
+gyrfalcon-store.workspace = true
+solana-sdk.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true

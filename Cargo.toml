@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Xtley001/gyrfalcon"
+
+[workspace.dependencies]
+gyrfalcon-core = { path = "crates/core" }
+gyrfalcon-config = { path = "crates/config" }
+gyrfalcon-ingestion = { path = "crates/ingestion" }
+gyrfalcon-store = { path = "crates/store" }
+gyrfalcon-health = { path = "crates/health" }
+gyrfalcon-strategy = { path = "crates/strategy" }
+gyrfalcon-router = { path = "crates/router" }
+gyrfalcon-sim = { path = "crates/sim" }
+gyrfalcon-bundler = { path = "crates/bundler" }
+gyrfalcon-submit = { path = "crates/submit" }
+gyrfalcon-treasury = { path = "crates/treasury" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+async-trait = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytemuck = { version = "1", features = ["derive"] }
+bs58 = "0.5"
+base64 = "0.22"
+bincode = "1"
+fixed = "1"
+solana-sdk = "2"
+solana-pubkey = "2"
+solana-program = "1.18"
+litesvm = "0.7.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.7"
+
+
+# Profile tuned for a latency-sensitive hot path once real logic lands (Stage B+).
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

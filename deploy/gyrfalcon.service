@@ -1,0 +1,56 @@
+# Phase 1 deployment unit (docs/RUNBOOK.md#deployment-phases) — bare-metal,
+# single box, colocated near the leased provider's low-latency PoP. Only
+# deploy this after Phase 0's `observe`-mode backtests confirm the adapters
+# predict real liquidations on time — see docs/RUNBOOK.md#deployment-phases
+# and the production readiness checklist in the same doc.
+#
+# Install:
+#   sudo cp deploy/gyrfalcon.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable gyrfalcon
+#   sudo systemctl start gyrfalcon
+#
+# Kernel-level tuning (CPU pinning/isolation, disabled frequency scaling,
+# tuned network stack for QUIC send — docs/RUNBOOK.md#hardware) is done at
+# the OS level (isolcpus/nohz_full kernel params, cpuset, tuned-adm, etc.),
+# not expressible in a systemd unit alone. CPUAffinity below pins the
+# process to isolated cores as a starting point; the actual core list
+# depends on the box's topology and must be set per-host, not copied
+# blindly from this template.
+
+[Unit]
+Description=gyrfalcon liquidation engine
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=gyrfalcon
+Group=gyrfalcon
+WorkingDirectory=/opt/gyrfalcon
+ExecStart=/opt/gyrfalcon/bin/gyrfalcon --config /opt/gyrfalcon/config/gyrfalcon.toml
+Restart=on-failure
+RestartSec=5
+
+# CPU pinning placeholder — set to the actual isolated core range for this
+# host (see docs/RUNBOOK.md#hardware: single-thread clock speed matters
+# more than core count for this workload). Uncomment and adjust:
+# CPUAffinity=2-3
+
+# Hardening. Loosen only if a specific requirement needs it (e.g. NIC
+# access for a non-standard network setup).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gyrfalcon/data
+PrivateTmp=true
+
+# The signer keypair and config carry real capital exposure once
+# submit.mode=live — restrict who can read them at the filesystem level
+# independent of this unit (chmod 600, dedicated `gyrfalcon` user), not
+# just via systemd sandboxing.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+[package]
+name = "gyrfalcon-bundler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "v0 transaction assembly, ALT management, and CU budgeting, per docs/ARCHITECTURE.md#bundle-builder (Stage B item 9)."
+
+[dependencies]
+gyrfalcon-core.workspace = true
+solana-sdk.workspace = true
+bincode.workspace = true
+thiserror.workspace = true
+spl-associated-token-account = "4"

@@ -1,0 +1,54 @@
+# gyrfalcon devnet configuration
+#
+# Used for the end-to-end submission dry-run in docs/TESTING.md#devnet-dry-run.
+# Devnet has no real liquidations to catch — this config exists to exercise
+# the staked-send + Jito dual submission path and transaction plumbing against
+# a live network, not to validate strategy or profitability logic.
+
+[geyser]
+url   = "https://your-devnet-geyser-endpoint:443"
+token = "REPLACE_ME"
+
+[rpc]
+url = "https://api.devnet.solana.com"
+
+[staked_send]
+url = "https://your-devnet-staked-send-endpoint"
+
+[jito]
+block_engine_url = "https://frankfurt.testnet.block-engine.jito.wtf"
+
+[identity]
+keypair_path = "/secrets/gyrfalcon-devnet-signer.json"
+tip_account  = "REPLACE_ME"
+
+[treasury]
+wallet_path      = "/secrets/gyrfalcon-devnet-treasury.json"
+min_balance_sol  = 0.5
+sweep_interval   = "1h"
+
+[protocols.kamino]
+enabled = true
+
+[protocols.save]
+enabled = true
+
+[protocols.marginfi]
+enabled = false  # devnet deployments of MarginFi are inconsistent — verify before enabling
+
+[submit]
+mode          = "live"   # devnet capital only — see the caveat above
+leaders_ahead = 2
+dual_path     = true
+timeout_ms    = 2000
+
+[risk]
+min_profit_usd           = 0.0   # devnet has no real profit signal; dry-run only
+min_tip_usd              = 0.0
+sync_lag_halt_slots      = 3
+contention_ceiling       = 0.8
+max_tip_per_tx_usd       = 5.0
+max_tip_per_slot_usd     = 20.0
+max_tip_pct_of_bonus     = 0.4
+max_drawdown_usd         = 50.0
+consecutive_revert_limit = 3

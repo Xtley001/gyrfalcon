@@ -1,0 +1,20 @@
+[package]
+name = "gyrfalcon-ingestion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Geyser gRPC client (Stage B+) and the generic zero-copy account decoder framework, per docs/ARCHITECTURE.md#ingestion."
+
+[dependencies]
+crossbeam-queue = "0.3"
+gyrfalcon-core.workspace = true
+bs58.workspace = true
+base64.workspace = true
+bytemuck.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]

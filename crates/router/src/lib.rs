@@ -1,0 +1,288 @@
+//! Mint-keyed flash-source router — `gyrfalcon_core::FlashSourceRouter`,
+//! ranking candidate reserves by depth and fee per Whitepaper Eq. 3.
+//!
+//! # Stage B -> Stage C
+//!
+//! Stage B (`docs/BUILD_ORDER.md` item 6) shipped Kamino-only. Stage C
+//! item 13 adds Save as a second source — `MultiSourceRouter` tracks
+//! reserves from both protocols, tagged by `Protocol`, so
+//! `FlashSourceRouter::route`'s depth/fee comparison across sources
+//! (Whitepaper Eq. 3) is now meaningfully exercised for the first time
+//! rather than trivially picking the only option.
+//!
+//! **Save flash-loan caveat**: see `crates/health/src/adapters/save.rs`'s
+//! module doc — Save's own docs describe their flash-loan implementation
+//! as functionally limited as of this writing. This router still ranks
+//! Save reserves as candidates per BUILD_ORDER item 13's instruction, but
+//! that's a live-verify item before real capital depends on a Save-sourced
+//! flash loan landing correctly, same spirit as MarginFi's flash-instruction
+//! finding.
+//!
+//! Both `klend-interface` (Kamino) and `solend-sdk` (Save) apply here —
+//! see `crates/health/src/adapters/kamino.rs` and `save.rs` for licensing
+//! and decode-mechanism notes for each. Same MSRV 1.81 caveat as those
+//! adapters (via `klend-interface`): this crate could not be built/tested
+//! in the sandbox that wrote it.
+
+use gyrfalcon_core::types::FlashSource;
+use gyrfalcon_core::{FlashSourceRouter, Protocol, Pubkey as CorePubkey};
+use klend_interface::state::{
+    from_account_data as kamino_from_account_data, Reserve as KaminoReserve, SplDiscriminate,
+};
+use solana_program::program_pack::Pack;
+use solend_sdk::state::Reserve as SaveReserve;
+use std::collections::HashMap;
+
+fn kamino_pubkey_to_core(p: solana_pubkey::Pubkey) -> CorePubkey {
+    CorePubkey::new(p.to_bytes())
+}
+
+fn save_pubkey_to_core(p: solana_program::pubkey::Pubkey) -> CorePubkey {
+    CorePubkey::new(p.to_bytes())
+}
+
+/// `u64::MAX` marks a Kamino reserve's flash loan as disabled, per
+/// `klend_interface::state::ReserveFees::flash_loan_fee_sf`'s doc comment.
+const KAMINO_FLASH_LOAN_DISABLED: u64 = u64::MAX;
+
+fn kamino_fee_bps_from_sf(flash_loan_fee_sf: u64) -> Option<u32> {
+    if flash_loan_fee_sf == KAMINO_FLASH_LOAN_DISABLED {
+        return None;
+    }
+    let rate = klend_interface::Fraction::from_bits(flash_loan_fee_sf as u128).to_num::<f64>();
+    Some((rate * 10_000.0).round() as u32)
+}
+
+/// Save's `flash_loan_fee_wad` is a Wad (`10^18` = 100%), with `0` simply
+/// meaning free — no disabled sentinel, unlike Kamino's `u64::MAX`. See
+/// `crates/health/src/adapters/save.rs` for the same Wad-to-f64 pattern
+/// applied to other Save `Decimal` fields.
+fn save_fee_bps_from_wad(flash_loan_fee_wad: u64) -> u32 {
+    let rate = flash_loan_fee_wad as f64 / 1e18;
+    (rate * 10_000.0).round() as u32
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReserveInfo {
+    protocol: Protocol,
+    mint: CorePubkey,
+    available_liquidity: u64,
+    /// `None` when this reserve's flash loans are disabled (Kamino only —
+    /// Save has no disabled sentinel, see `save_fee_bps_from_wad`).
+    fee_bps: Option<u32>,
+}
+
+/// `gyrfalcon_core::FlashSourceRouter` backed by both Kamino and Save
+/// reserves.
+#[derive(Debug, Default)]
+pub struct MultiSourceRouter {
+    reserves: HashMap<CorePubkey, ReserveInfo>,
+}
+
+impl MultiSourceRouter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feed one raw Kamino-program account update. No-op for anything
+    /// that isn't a `Reserve` account.
+    pub fn observe_kamino_account(&mut self, pubkey: CorePubkey, data: &[u8]) {
+        if data.len() < 8 || &data[..8] != KaminoReserve::SPL_DISCRIMINATOR_SLICE {
+            return;
+        }
+        let Ok(reserve) = kamino_from_account_data::<KaminoReserve>(data) else {
+            return;
+        };
+        self.reserves.insert(
+            pubkey,
+            ReserveInfo {
+                protocol: Protocol::Kamino,
+                mint: kamino_pubkey_to_core(reserve.liquidity.mint_pubkey),
+                available_liquidity: reserve.available_liquidity(),
+                fee_bps: kamino_fee_bps_from_sf(reserve.config.fees.flash_loan_fee_sf),
+            },
+        );
+    }
+
+    /// Feed one raw Save-program account update. No-op for anything that
+    /// doesn't unpack as a `Reserve` (see
+    /// `crates/health/src/adapters/save.rs` for why Save accounts are
+    /// disambiguated by unpack-attempt rather than a discriminator byte).
+    pub fn observe_save_account(&mut self, pubkey: CorePubkey, data: &[u8]) {
+        let Ok(reserve) = SaveReserve::unpack_from_slice(data) else {
+            return;
+        };
+        self.reserves.insert(
+            pubkey,
+            ReserveInfo {
+                protocol: Protocol::Save,
+                mint: save_pubkey_to_core(reserve.liquidity.mint_pubkey),
+                available_liquidity: reserve.liquidity.available_amount,
+                fee_bps: Some(save_fee_bps_from_wad(
+                    reserve.config.fees.flash_loan_fee_wad,
+                )),
+            },
+        );
+    }
+
+    pub fn tracked_reserve_count(&self) -> usize {
+        self.reserves.len()
+    }
+}
+
+impl FlashSourceRouter for MultiSourceRouter {
+    fn route(&self, mint: CorePubkey, amount: u64) -> Option<FlashSource> {
+        self.reserves
+            .iter()
+            .filter(|(_, info)| info.mint == mint)
+            .filter(|(_, info)| info.available_liquidity >= amount)
+            .filter_map(|(reserve_key, info)| {
+                info.fee_bps.map(|fee_bps| (reserve_key, info, fee_bps))
+            })
+            // Lowest fee wins, across protocols; ties broken by deepest
+            // liquidity so the pick is deterministic given identical fees
+            // — this is Whitepaper Eq. 3's comparison, now meaningfully
+            // multi-source (Stage C item 13).
+            .min_by(|(_, a, a_fee), (_, b, b_fee)| {
+                a_fee
+                    .cmp(b_fee)
+                    .then(b.available_liquidity.cmp(&a.available_liquidity))
+            })
+            .map(|(reserve_key, info, fee_bps)| FlashSource {
+                protocol: info.protocol,
+                reserve: *reserve_key,
+                fee_bps,
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytemuck::Zeroable;
+
+    fn encode_kamino(reserve: &KaminoReserve) -> Vec<u8> {
+        let mut out = KaminoReserve::SPL_DISCRIMINATOR_SLICE.to_vec();
+        out.extend_from_slice(bytemuck::bytes_of(reserve));
+        out
+    }
+
+    fn sample_kamino_reserve(
+        mint: solana_pubkey::Pubkey,
+        available: u64,
+        fee_bps: Option<u32>,
+    ) -> KaminoReserve {
+        let mut reserve = KaminoReserve::zeroed();
+        reserve.liquidity.mint_pubkey = mint;
+        reserve.liquidity.total_available_amount = available;
+        reserve.config.fees.flash_loan_fee_sf = match fee_bps {
+            None => KAMINO_FLASH_LOAN_DISABLED,
+            Some(bps) => ((bps as f64 / 10_000.0) * (1u128 << 60) as f64) as u64,
+        };
+        reserve
+    }
+
+    fn encode_save(reserve: SaveReserve) -> Vec<u8> {
+        let mut buf = vec![0u8; SaveReserve::LEN];
+        SaveReserve::pack(reserve, &mut buf).unwrap();
+        buf
+    }
+
+    fn sample_save_reserve(
+        mint: solana_program::pubkey::Pubkey,
+        available: u64,
+        fee_bps: u32,
+    ) -> SaveReserve {
+        let mut reserve = SaveReserve::default();
+        reserve.liquidity.mint_pubkey = mint;
+        reserve.liquidity.available_amount = available;
+        reserve.config.fees.flash_loan_fee_wad = (fee_bps as f64 / 10_000.0 * 1e18) as u64;
+        reserve
+    }
+
+    fn kamino_pk(byte: u8) -> solana_pubkey::Pubkey {
+        solana_pubkey::Pubkey::new_from_array([byte; 32])
+    }
+
+    fn save_pk(byte: u8) -> solana_program::pubkey::Pubkey {
+        solana_program::pubkey::Pubkey::new_from_array([byte; 32])
+    }
+
+    fn core_pk(byte: u8) -> CorePubkey {
+        CorePubkey::new([byte; 32])
+    }
+
+    #[test]
+    fn routes_across_both_protocols_picking_lowest_fee() {
+        let mut router = MultiSourceRouter::new();
+        // Same logical mint, bytes [9;32], seen through each protocol's
+        // own Pubkey type independently -- this is exactly the "two
+        // options to compare" case Stage C item 13 exists to exercise.
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(9), 1_000_000, Some(10))),
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(9), 1_000_000, 3)),
+        );
+
+        let source = router.route(core_pk(9), 500_000).expect("should route");
+        assert_eq!(source.protocol, Protocol::Save);
+        assert_eq!(source.fee_bps, 3);
+        assert_eq!(source.reserve, core_pk(2));
+    }
+
+    #[test]
+    fn falls_back_to_kamino_when_save_lacks_depth() {
+        let mut router = MultiSourceRouter::new();
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(9), 1_000_000, Some(10))),
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(9), 100, 3)),
+        ); // too shallow
+
+        let source = router.route(core_pk(9), 500_000).expect("should route");
+        assert_eq!(source.protocol, Protocol::Kamino);
+        assert_eq!(source.reserve, core_pk(1));
+    }
+
+    #[test]
+    fn skips_kamino_reserves_with_flash_loans_disabled() {
+        let mut router = MultiSourceRouter::new();
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(9), 1_000_000, None)), // disabled
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(9), 1_000_000, 7)),
+        );
+
+        let source = router.route(core_pk(9), 500_000).unwrap();
+        assert_eq!(source.protocol, Protocol::Save);
+    }
+
+    #[test]
+    fn tracked_reserve_count_reflects_both_protocols() {
+        let mut router = MultiSourceRouter::new();
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(9), 1, Some(1))),
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(9), 1, 1)),
+        );
+        assert_eq!(router.tracked_reserve_count(), 2);
+    }
+
+    #[test]
+    fn returns_none_for_unknown_mint() {
+        let router = MultiSourceRouter::new();
+        assert!(router.route(core_pk(42), 1).is_none());
+    }
+}

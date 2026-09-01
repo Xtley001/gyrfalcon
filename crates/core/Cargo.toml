@@ -1,0 +1,12 @@
+[package]
+name = "gyrfalcon-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared data types and trait contracts (docs/API.md) used across every gyrfalcon crate."
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+bs58.workspace = true

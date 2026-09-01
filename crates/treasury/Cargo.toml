@@ -1,0 +1,11 @@
+[package]
+name = "gyrfalcon-treasury"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hot wallet accounting, exposure caps, minimum-balance breaker, and profit sweeps, per docs/ARCHITECTURE.md#treasury and docs/STRATEGY.md#treasury-and-capital-management (Stage B item 11)."
+
+[dependencies]
+gyrfalcon-core.workspace = true
+gyrfalcon-config.workspace = true
+thiserror.workspace = true

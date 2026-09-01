@@ -1,0 +1,24 @@
+[package]
+name = "gyrfalcon-router"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Mint-keyed flash-source router, per docs/API.md#trait-contracts and docs/ARCHITECTURE.md#flash-source-router."
+
+[dependencies]
+gyrfalcon-core.workspace = true
+# See crates/health/Cargo.toml's note on klend-interface's license and
+# crates/health/src/adapters/kamino.rs for the MSRV 1.81 caveat (this
+# sandbox's cargo 1.75 cannot build/test this crate locally either).
+klend-interface = "0.6"
+solana-pubkey.workspace = true
+# NOT the crates.io "solend-sdk" (that published crate is stale — 0.1.0,
+# predating current on-chain account-layout fields like scaled_price_offset_bps
+# and the rate limiter; verified by its solana-program <1.15 constraint). Using
+# a git dependency pinned to the current mainnet branch instead, matching the
+# real struct fields traced from source. Apache-2.0.
+solend-sdk = { git = "https://github.com/solendprotocol/solana-program-library.git", rev = "d04ce00bbf4356c4fd32b3be38eb9760b696bb3e", package = "solend-sdk" }
+solana-program.workspace = true
+
+[dev-dependencies]
+bytemuck = { version = "1", features = ["derive"] }

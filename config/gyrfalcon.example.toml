@@ -1,0 +1,63 @@
+# gyrfalcon example configuration
+#
+# Copy to gyrfalcon.toml and fill in real endpoints, keys, and — critically —
+# the [treasury] and [risk] values below. Every number in those two sections
+# is a PLACEHOLDER: a round, illustrative starting point with no empirical
+# basis, not a validated default. Set them from your own risk tolerance and
+# actual treasury size before running in `live` mode. See docs/STRATEGY.md
+# and docs/RUNBOOK.md#production-readiness-checklist.
+
+[geyser]
+url   = "https://your-geyser-endpoint:443"
+token = "REPLACE_ME"
+
+[rpc]
+url = "https://your-fallback-rpc"
+
+[staked_send]
+url = "https://your-staked-send-endpoint"
+
+[jito]
+block_engine_url = "https://frankfurt.mainnet.block-engine.jito.wtf"
+
+[identity]
+keypair_path = "/secrets/gyrfalcon-signer.json"
+tip_account  = "REPLACE_ME"
+
+[treasury]
+# PLACEHOLDER — see docs/STRATEGY.md#treasury-and-capital-management.
+# Store this key at rest per docs/SECURITY.md#key-custody, never as a plain
+# file with no encryption on a shared box.
+wallet_path      = "/secrets/gyrfalcon-treasury.json"
+min_balance_sol  = 2.0     # PLACEHOLDER — set from your real operating float
+sweep_interval   = "1h"    # PLACEHOLDER — tune to your settlement cadence
+
+[protocols.kamino]
+enabled = true
+
+[protocols.save]
+enabled = true
+
+[protocols.marginfi]
+enabled = true
+
+[submit]
+mode          = "observe"  # always start here — see docs/RUNBOOK.md#deployment-phases
+leaders_ahead = 2
+dual_path     = true
+timeout_ms    = 1000
+
+[risk]
+# PLACEHOLDER block — every value below is an illustrative starting point,
+# not a validated number. Do not promote to `live` mode against these
+# defaults without deciding real values for your own capital and risk
+# tolerance. See docs/STRATEGY.md#circuit-breakers.
+min_profit_usd           = 5.0     # PLACEHOLDER
+min_tip_usd              = 0.0     # PLACEHOLDER — static floor (STRATEGY.md Eq. 2b)
+sync_lag_halt_slots      = 3       # PLACEHOLDER
+contention_ceiling       = 0.8     # PLACEHOLDER — should become empirical, see RUNBOOK
+max_tip_per_tx_usd       = 150.0   # PLACEHOLDER
+max_tip_per_slot_usd     = 600.0   # PLACEHOLDER
+max_tip_pct_of_bonus     = 0.4     # PLACEHOLDER
+max_drawdown_usd         = 1000.0  # PLACEHOLDER
+consecutive_revert_limit = 3       # PLACEHOLDER
