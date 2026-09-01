@@ -1,120 +1,112 @@
 # gyrfalcon
 
-A multi-protocol Solana liquidation bot covering Kamino, Save, and MarginFi from a single latency-optimized engine.
+A multi-protocol Solana liquidation engine covering Kamino, Save, and MarginFi.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Xtley001/gyrfalcon/ci.yml?branch=main)](https://github.com/Xtley001/gyrfalcon/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-1f1f1f.svg)](./LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.79%2B-1f1f1f.svg)](https://www.rust-lang.org)
-[![Security Policy](https://img.shields.io/badge/security-policy-1f1f1f.svg)](./SECURITY.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Rust: 2021/2024](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org)
+[![Security Policy](https://img.shields.io/badge/security-policy-green.svg)](./SECURITY.md)
 
-`gyrfalcon` detects health-factor breaches across the three largest Solana lending markets and lands liquidation transactions as close to the network's physical latency floor as possible. It runs one shared engine — Geyser ingestion, in-memory health book, flash-source router, and in-process SVM simulation — with thin per-protocol adapters, so covering a third protocol costs almost nothing once the first is running. This is a liquidation system, not an arbitrage system: the edge is detection speed and submission speed, not pricing cleverness. For the full design rationale and formal profitability model, see the [whitepaper](./docs/whitepaper.md).
+`gyrfalcon` is an ultra-low-latency liquidation engine engineered for Solana's primary lending markets (**Kamino Lend**, **Save / Solend**, and **MarginFi v2**). It unifies Yellowstone gRPC streaming, in-memory account decoding, zero-risk flash loan routing, in-process LiteSVM transaction simulation, and parallel dual-path submission (Staked QUIC + Jito Block Engine). For full mathematical derivations and invariant proofs, see the [whitepaper](./docs/whitepaper.md).
 
-> This code has not been audited. Do not commit real liquidation capital without your own review and the [production readiness checklist](./docs/RUNBOOK.md#production-readiness-checklist). `dashboard.html` is a disconnected UI reference — it renders explicit empty states, not example data; see [`docs/DATA_POLICY.md`](./docs/DATA_POLICY.md).
+## Quickstart
 
-## Table of Contents
+```bash
+# Clone and build workspace
+git clone https://github.com/Xtley001/gyrfalcon.git
+cd gyrfalcon
+cargo build --release
 
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running](#running)
-- [Testing](#testing)
-- [Documentation](#documentation)
-- [Security](#security)
-- [Contributing](#contributing)
-- [License](#license)
+# Configure environment
+cp config/gyrfalcon.example.toml config/gyrfalcon.toml
+
+# Run in observe mode (zero capital at risk)
+cargo run --release -- --config config/gyrfalcon.toml --mode observe
+```
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    G[Yellowstone Geyser gRPC<br/>staked-priority endpoint] --> I[Ingestion · Rust<br/>zero-copy account decoders]
-    I -->|shared-memory ring buffer| H{Health Engines}
-    H --> KA[Kamino adapter]
-    H --> SA[Save adapter]
-    H --> MA[MarginFi adapter]
-    KA & SA & MA --> ST[Strategy<br/>size · arbitrate · bid]
-    ST --> R[Flash-Source Router<br/>keyed by mint]
-    R --> S[In-Process SVM Simulation · LiteSVM]
-    S -->|profitable| B[Bundle Builder<br/>ALT-aware · CU-budgeted]
-    B --> D1[Staked QUIC to next leaders]
-    B --> D2[Jito bundle]
-    D1 & D2 --> L[Landed / Reverted]
-    L -.retry decision.-> ST
-    TR[Treasury<br/>gas + tip capital] -.exposure caps.-> ST
+    G["Yellowstone Geyser gRPC<br/>(Raw Account Updates)"] --> I["Ingestion & Zero-Copy Decoders<br/>(Lock-free Ring Buffer)"]
+    I --> H{"Health Adapters"}
+    H -->|klend-interface| KA["Kamino Adapter"]
+    H -->|solend-sdk| SA["Save Adapter"]
+    H -->|marginfi-v2| MA["MarginFi Adapter"]
+    KA & SA & MA --> ST["Deterministic Strategy<br/>(Sizing & Tip Arbitration)"]
+    ST --> R["Flash-Source Router<br/>(Mint-Keyed Liquidity)"]
+    R --> S["In-Process LiteSVM Simulation<br/>(CU & Feasibility Verification)"]
+    S -->|Profitable & Feasible| B["Bundle Builder & ALT Manager<br/>(v0 Versioned Transactions)"]
+    B -->|Staked QUIC| D1["TPU Leader Sockets"]
+    B -->|Jito JSON-RPC| D2["Jito Block Engine"]
+    D1 & D2 --> OUT["Landed / Reverted Outcome"]
+    OUT --> LOG["Async Liquidation Log & Position Store"]
+    OUT -.Feedback.-> ST
 ```
 
-The `strategy → router → simulator → bundler` path is in-process function calls, not IPC — at microsecond scale a process boundary adds jitter you cannot recover. Adapters are isolated so a panic in one protocol never takes the others down. Flash-borrowed principal is never at risk; the treasury only funds gas, priority fees, and tips, and is capped per transaction and per slot. Full component detail lives in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md); the decision logic behind sizing, bidding, and capital limits lives in [`docs/STRATEGY.md`](./docs/STRATEGY.md).
+## Workspace Crates
 
-## Requirements
+| Crate | Path | Responsibility |
+|---|---|---|
+| `gyrfalcon-core` | `crates/core` | Core domain types, protocol enums, trait interfaces, and 32-byte Pubkey |
+| `gyrfalcon-config` | `crates/config` | Strict TOML configuration schemas, risk parameters, and endpoint validation |
+| `gyrfalcon-health` | `crates/health` | Protocol obligation decoders and health factor breach calculation |
+| `gyrfalcon-ingestion`| `crates/ingestion` | Yellowstone Geyser gRPC streaming client and zero-copy account dispatch |
+| `gyrfalcon-router` | `crates/router` | Mint-keyed multi-source flash loan routing and fee evaluation |
+| `gyrfalcon-strategy`| `crates/strategy` | Position sizing, dynamic tip bidding, and 4-tier circuit breaker engine |
+| `gyrfalcon-sim` | `crates/sim` | LiteSVM in-process simulation harness, replay engine, and CU profiling |
+| `gyrfalcon-bundler` | `crates/bundler` | Liquidation/swap instruction building, Token-2022 support, and ALT manager |
+| `gyrfalcon-submit` | `crates/submit` | Dual-path submission engine (Staked QUIC + Jito Block Engine bundles) |
+| `gyrfalcon-treasury`| `crates/treasury`| Wallet floor monitoring, PnL ledger, and automated profit sweep |
+| `gyrfalcon-store` | `crates/store` | In-memory position book and non-blocking asynchronous JSONL logger |
+| `gyrfalcon` | `crates/gyrfalcon-bin` | Multi-threaded orchestrator daemon and embedded dashboard server |
 
-- Rust 1.79+ (`stable`)
-- A leased Yellowstone Geyser gRPC subscription
-- A leased staked-send `sendTransaction` endpoint
-- Access to a Jito block-engine region
+## Supported Protocols
 
-## Installation
+| Protocol | Program ID | Mechanism | Flash Loan Support |
+|---|---|---|---|
+| **Kamino Lend** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | `klend-interface 0.6` | Native Instruction Introspection |
+| **Save (Solend)**| `So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo` | `solend-sdk 0.1` | Native Reserve Flash Borrow/Repay |
+| **MarginFi v2** | `MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA` | `marginfi-type-crate`| Native Flash Loan Instructions |
 
-```bash
-git clone https://github.com/Xtley001/gyrfalcon.git
-cd gyrfalcon
-cargo build --release
-```
-
-## Configuration
-
-Copy the example config and fill in your leased endpoints and keypair path.
-
-```bash
-cp config/gyrfalcon.example.toml config/gyrfalcon.toml
-```
-
-Every field is documented in [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md). Endpoints, per-protocol toggles, and submission regions are set there.
-
-## Running
+## Testing & Verification
 
 ```bash
-# Phase 0 — correctness only, cloud VM, no colocation
-cargo run --release -- --config config/gyrfalcon.toml --mode observe
-
-# Phase 1 — production, arms submission
-cargo run --release -- --config config/gyrfalcon.toml --mode live
-```
-
-`observe` mode runs the full detect → route → simulate path and logs would-be liquidations without submitting. Promote to `live` only after backtests confirm the adapters predict real liquidations on time. See the [runbook](./docs/RUNBOOK.md).
-
-## Testing
-
-```bash
+# Run unit & integration test suites
 cargo test --workspace
+
+# Replay historical liquidation events
+cargo run --bin replay -- --events tests/fixtures/liquidations.jsonl
+
+# Profile compute units via LiteSVM
+cargo run --bin cu-profile
+
+# Run production readiness checks
+cargo run --bin readiness-check
 ```
 
-Historical-replay and per-route CU profiling harnesses are documented in [`docs/TESTING.md`](./docs/TESTING.md).
+## Documentation Reference
 
-## Documentation
-
-| Document | Contents |
+| Document | Description |
 |---|---|
-| [`docs/BUILD_ORDER.md`](./docs/BUILD_ORDER.md) | Start here to implement — the staged build sequence and exit criteria |
-| [`docs/DATA_POLICY.md`](./docs/DATA_POLICY.md) | Hard rule: no mock or synthetic data on any surface, ever |
-| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Component design, data flow, fault isolation |
-| [`docs/STRATEGY.md`](./docs/STRATEGY.md) | Sizing, tip bidding, treasury caps, circuit breakers |
-| [`docs/API.md`](./docs/API.md) | Backend module contracts, trait definitions, data model |
-| [`docs/whitepaper.md`](./docs/whitepaper.md) | Liquidation mechanics, profitability model, invariants |
-| [`docs/FEATURES.md`](./docs/FEATURES.md) | What's specified, roadmap, explicit non-goals |
-| [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md) | Every config field and endpoint |
-| [`docs/RUNBOOK.md`](./docs/RUNBOOK.md) | Deployment phases, kill switch, cost model, readiness checklist |
-| [`docs/TESTING.md`](./docs/TESTING.md) | Replay harness, CU profiling, devnet dry-runs |
-| [`CHANGELOG.md`](./CHANGELOG.md) | Version history |
+| [`docs/whitepaper.md`](./docs/whitepaper.md) | Mathematical liquidation mechanics, profitability model, and invariant proofs |
+| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Component architecture, latency hot-paths, and fault isolation |
+| [`docs/STRATEGY.md`](./docs/STRATEGY.md) | Sizing mechanics, dynamic tip curve, contention modeling, and circuit breakers |
+| [`docs/API.md`](./docs/API.md) | Trait definitions, event bus message contracts, and data types |
+| [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md) | Comprehensive configuration guide for mainnet and devnet |
+| [`docs/RUNBOOK.md`](./docs/RUNBOOK.md) | Deployment phases, manual kill-switch operation, and production checklist |
+| [`docs/TESTING.md`](./docs/TESTING.md) | Historical replay, LiteSVM profiling, and simulation test harnesses |
+| [`docs/DECISIONS.md`](./docs/DECISIONS.md) | Architectural Decision Records (ADRs) |
+| [`docs/BUILD_ORDER.md`](./docs/BUILD_ORDER.md) | Implementation roadmap and staged deliverables |
 
 ## Security
 
-The single point of failure is the LiteSVM account-sync pipeline; staleness detection and per-adapter halting are mandatory before live capital. Report vulnerabilities per our [security policy](./SECURITY.md). Never inline private keys in config committed to version control.
+Report vulnerabilities according to our [Security Policy](./SECURITY.md). Do not deploy live capital without completing the [Production Readiness Checklist](./docs/RUNBOOK.md#production-readiness-checklist).
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, adapter conventions, and PR guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines, development setup, and code standards.
 
 ## License
 
-Released under the [MIT License](./LICENSE).
+Licensed under the [MIT License](./LICENSE).

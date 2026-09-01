@@ -116,9 +116,11 @@ enabled = true
 mode          = "observe"
 leaders_ahead = 2
 dual_path     = true
+timeout_ms    = 1000
 
 [risk]
 min_profit_usd          = 5.0
+min_tip_usd             = 0.0
 sync_lag_halt_slots     = 3
 contention_ceiling      = 0.8
 max_tip_per_tx_usd      = 150.0

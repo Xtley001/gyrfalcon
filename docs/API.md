@@ -43,7 +43,7 @@ struct BreachCandidate {
 struct RoutedCandidate {
     candidate: BreachCandidate,
     repay_amount: u64,            // <= close_factor_max_repay, per docs/STRATEGY.md sizing
-    flash_source: FlashSource,    // Kamino | Save reserve pubkey
+    flash_source: FlashSource,    // Kamino | Save | MarginFi reserve pubkey
     expected: ProfitEstimate,     // Π components, pre-simulation
 }
 

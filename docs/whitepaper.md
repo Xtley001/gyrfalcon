@@ -82,11 +82,11 @@ where $\tau_0$ is a baseline floor, $\gamma_\rho \in [0,1]$ is observed write-lo
 
 ### 4.4 Flash-source routing
 
-For each candidate the router selects a source reserve $\rho$ over the set of viable reserves $R_{\text{mint}}$ (Kamino, Save) by minimizing fee subject to a depth constraint:
+For each candidate the router selects a source reserve $\rho$ over the set of viable reserves $R_{\text{mint}}$ (Kamino, Save, MarginFi) by minimizing fee subject to a depth constraint:
 
-$$\rho^\* = \arg\min_{\rho \in R_{\text{mint}}} f_\rho \quad \text{s.t.} \quad \text{depth}_\rho \geq r \ \text{and}\ \text{contention}_\rho \leq \theta \tag{3}$$
+$$\rho^* = \arg\min_{\rho \in R_{\text{mint}}} f_\rho \quad \text{s.t.} \quad \text{depth}_\rho \geq r \ \text{and}\ \text{contention}_\rho \leq \theta \tag{3}$$
 
-Depth is measured as available liquidity right now, not headline TVL. MarginFi is never a source (no native flash instruction) but is always a valid liquidation target, borrowing from Kamino or Save within the same transaction.
+Depth is measured as available liquidity right now, not headline TVL. All three protocols (Kamino, Save, MarginFi v2) support native flash loans and act as both flash liquidity sources and liquidation targets. Cross-protocol borrowing is supported seamlessly when target protocol reserves are constrained.
 
 ## 5. Feasibility constraints
 
