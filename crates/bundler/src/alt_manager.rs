@@ -44,8 +44,8 @@ impl AltManager {
         recent_slot: u64,
         addresses: &[Pubkey],
     ) -> Result<(Pubkey, Instruction, Vec<Instruction>), AltError> {
-        let (create_ix, alt_pubkey) = build_create_instruction(payer, authority, recent_slot);
-        let extend_ixs = build_extend_instructions(&alt_pubkey, payer, authority, addresses)?;
+        let (alt_pubkey, create_ix) = build_create_instruction(authority, payer, recent_slot);
+        let extend_ixs = build_extend_instructions(&alt_pubkey, authority, payer, addresses)?;
 
         Ok((alt_pubkey, create_ix, extend_ixs))
     }
@@ -58,6 +58,16 @@ impl AltManager {
         };
 
         keys.iter().filter_map(|k| guard.get(k).cloned()).collect()
+    }
+
+    /// Retrieve all registered lookup tables in cache.
+    pub fn get_all_tables(&self) -> Vec<AddressLookupTableAccount> {
+        let guard = match self.tables.read() {
+            Ok(g) => g,
+            Err(_) => return Vec::new(),
+        };
+
+        guard.values().cloned().collect()
     }
 }
 
@@ -76,7 +86,7 @@ mod tests {
             .plan_create_and_populate(&payer, &authority, 100, &addrs)
             .expect("should plan ALT creation successfully");
 
-        assert_eq!(extend_ixs.len(), 2); // 50 addresses = 30 + 20 = 2 batches
+        assert_eq!(extend_ixs.len(), 3); // 50 addresses / 20 per batch = 3 batches (20, 20, 10)
         assert_eq!(create_ix.program_id, solana_sdk::address_lookup_table::program::id());
 
         let table_acc = AddressLookupTableAccount {

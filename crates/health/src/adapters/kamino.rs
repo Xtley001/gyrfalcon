@@ -198,6 +198,10 @@ impl KaminoAdapter {
             return None; // no debt outstanding, cannot be liquidated
         }
         let unhealthy = sf_to_f64(obligation.unhealthy_borrow_value());
+        if unhealthy <= 0.0 {
+            self.known_obligations.insert(pubkey, ObligationSnapshot { slot, close_factor_max_repay: 0 });
+            return None; // zero collateral deposited, cannot seize anything
+        }
         let health_factor = unhealthy / debt;
         if health_factor >= 1.0 {
             self.known_obligations.insert(pubkey, ObligationSnapshot { slot, close_factor_max_repay: 0 });

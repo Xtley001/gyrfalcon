@@ -9,3 +9,5 @@ description = "Hot wallet accounting, exposure caps, minimum-balance breaker, an
 gyrfalcon-core.workspace = true
 gyrfalcon-config.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true

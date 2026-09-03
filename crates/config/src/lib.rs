@@ -190,6 +190,31 @@ mod tests {
     }
 
     #[test]
+    fn loads_production_config() {
+        let prod_path = repo_root().join("config/gyrfalcon.toml");
+        let prod_config = Config::load(&prod_path).expect("production config should parse and validate");
+        assert_eq!(prod_config.submit.mode, SubmitMode::Observe);
+        assert!(prod_config.protocols.kamino.enabled);
+        assert!(prod_config.protocols.save.enabled);
+        assert!(prod_config.protocols.marginfi.enabled);
+
+        let example_path = repo_root().join("config/gyrfalcon.example.toml");
+        let example_config = Config::load(&example_path).expect("example config should parse");
+
+        // 06_BUILD_ORDER.md Step 5 Acceptance Criteria:
+        // "none of the values match the placeholder example file's numbers by coincidence-checking — each has a derivation note."
+        assert_ne!(prod_config.risk.min_profit_usd, example_config.risk.min_profit_usd);
+        assert_ne!(prod_config.risk.min_tip_usd, example_config.risk.min_tip_usd);
+        assert_ne!(prod_config.risk.sync_lag_halt_slots, example_config.risk.sync_lag_halt_slots);
+        assert_ne!(prod_config.risk.contention_ceiling, example_config.risk.contention_ceiling);
+        assert_ne!(prod_config.risk.max_tip_per_tx_usd, example_config.risk.max_tip_per_tx_usd);
+        assert_ne!(prod_config.risk.max_tip_per_slot_usd, example_config.risk.max_tip_per_slot_usd);
+        assert_ne!(prod_config.risk.max_tip_pct_of_bonus, example_config.risk.max_tip_pct_of_bonus);
+        assert_ne!(prod_config.risk.max_drawdown_usd, example_config.risk.max_drawdown_usd);
+        assert_ne!(prod_config.risk.consecutive_revert_limit, example_config.risk.consecutive_revert_limit);
+    }
+
+    #[test]
     fn rejects_missing_file() {
         let err = Config::load("/nonexistent/gyrfalcon.toml").unwrap_err();
         assert!(matches!(err, ConfigError::Read { .. }));

@@ -4,12 +4,14 @@
 //! outcomes; `gyrfalcon_strategy::breakers::BreakerState` is what actually
 //! trips the breaker — this is the number that check is computed from.
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::Path;
 
-#[derive(Debug, Clone, Copy)]
-struct Entry {
-    slot: u64,
-    net_usd: f64,
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    pub slot: u64,
+    pub net_usd: f64,
 }
 
 /// A rolling window of realized net PnL entries, in **slots** rather than
@@ -19,7 +21,7 @@ struct Entry {
 /// slots-per-window figure (e.g. Solana's ~2.5 slots/sec puts a 24h window
 /// at roughly 216,000 slots) rather than this module hardcoding a
 /// network-specific slot time.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct PnlLedger {
     entries: VecDeque<Entry>,
 }
@@ -63,6 +65,23 @@ impl PnlLedger {
                 break;
             }
         }
+    }
+
+    /// Save realized PnL entries to disk as JSON to survive process restarts.
+    pub fn snapshot(&self, path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+        let path = path.as_ref();
+        let json = serde_json::to_string_pretty(&self.entries)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, json)
+    }
+
+    /// Restore realized PnL entries from a disk snapshot.
+    pub fn restore(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+        let path = path.as_ref();
+        let json = std::fs::read_to_string(path)?;
+        let entries: VecDeque<Entry> = serde_json::from_str(&json)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(Self { entries })
     }
 
     pub fn len(&self) -> usize {
@@ -112,5 +131,23 @@ mod tests {
         assert!(drawdown_breached(-1500.0, 1000.0));
         assert!(!drawdown_breached(-999.0, 1000.0));
         assert!(!drawdown_breached(500.0, 1000.0)); // profitable, never breached
+    }
+
+    #[test]
+    fn test_snapshot_restore_roundtrip() {
+        let mut ledger = PnlLedger::new();
+        ledger.record(100, 25.5);
+        ledger.record(200, -10.2);
+
+        let dir = std::env::temp_dir().join(format!("pnl_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pnl_ledger.json");
+
+        ledger.snapshot(&path).unwrap();
+        let restored = PnlLedger::restore(&path).unwrap();
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.windowed_sum(250, 200), 15.3);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

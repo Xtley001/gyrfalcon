@@ -10,7 +10,7 @@
 use std::fmt;
 
 #[derive(
-    Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct Pubkey(pub [u8; 32]);
 

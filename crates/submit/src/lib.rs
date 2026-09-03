@@ -4,4 +4,7 @@
 
 pub mod dual_path;
 
-pub use dual_path::{DualPathSubmitter, JitoSendPath, PathOutcome, SendPath, StakedQuicSendPath};
+pub use dual_path::{
+    DualPathSubmitter, JitoSendPath, JitoTipManager, LeaderScheduleProvider, PathOutcome, SendPath,
+    StakedQuicSendPath, StaticLeaderSchedule, DEFAULT_JITO_TIP_ACCOUNTS,
+};

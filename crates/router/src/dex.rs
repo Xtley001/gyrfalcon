@@ -1,0 +1,325 @@
+//! Multi-venue DEX routing engine per `02_ROUTING_DEX.md`.
+//!
+//! Evaluates Raydium CLMM, Raydium CP Swap, Orca Whirlpool, Meteora DLMM,
+//! Phoenix CLOB orderbook, and Jupiter Aggregator v6 (fallback).
+
+use gyrfalcon_core::Pubkey as CorePubkey;
+use serde::{Deserialize, Serialize};
+
+/// Supported DEX venues on Solana Mainnet-Beta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DexVenue {
+    RaydiumClmm,
+    RaydiumCpSwap,
+    OrcaWhirlpool,
+    MeteoraDlmm,
+    Phoenix,
+    Jupiter,
+}
+
+impl DexVenue {
+    pub fn is_direct(&self) -> bool {
+        !matches!(self, DexVenue::Jupiter)
+    }
+
+    pub fn program_id(&self) -> &'static str {
+        match self {
+            DexVenue::RaydiumClmm => "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            DexVenue::RaydiumCpSwap => "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            DexVenue::OrcaWhirlpool => "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+            DexVenue::MeteoraDlmm => "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+            DexVenue::Phoenix => "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY",
+            DexVenue::Jupiter => "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        }
+    }
+}
+
+/// A quote from a DEX venue for a candidate swap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarketQuote {
+    pub venue: DexVenue,
+    pub market_address: CorePubkey,
+    pub available_depth: u64,
+    /// Expected tokens out after fees and slippage.
+    pub expected_out_amount: u64,
+    pub fee_bps: u32,
+    pub price_impact_bps: u32,
+}
+
+/// The decision produced by `DexRouter::select_route`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DexRouteDecision {
+    pub selected_venue: DexVenue,
+    pub market_address: CorePubkey,
+    pub expected_out_amount: u64,
+    pub effective_price: f64,
+    /// Audit trail: all candidate venues evaluated and their quotes per 02_ROUTING_DEX.md §3 item 4.
+    pub considered_venues: Vec<MarketQuote>,
+    pub fallback_used: bool,
+}
+
+/// DEX router selecting between direct AMMs, Phoenix CLOB, and Jupiter fallback.
+pub struct DexRouter {
+    max_price_impact_bps: u32,
+    markets: std::collections::HashMap<(CorePubkey, CorePubkey), Vec<MarketQuote>>,
+}
+
+impl DexRouter {
+    pub fn new(max_price_impact_bps: u32) -> Self {
+        Self {
+            max_price_impact_bps,
+            markets: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn register_market_quote(
+        &mut self,
+        input_mint: CorePubkey,
+        output_mint: CorePubkey,
+        quote: MarketQuote,
+    ) {
+        self.markets
+            .entry((input_mint, output_mint))
+            .or_default()
+            .push(quote);
+    }
+
+    /// Select optimal DEX swap route per `02_ROUTING_DEX.md §2–3`:
+    /// 1. Compares all direct venues with sufficient depth (`available_depth >= amount_in`).
+    /// 2. Filters out venues exceeding `max_price_impact_bps`.
+    /// 3. Prefers Phoenix orderbook when competitive on major pairs to avoid AMM curve slippage.
+    /// 4. Picks venue with highest net `expected_out_amount` (best realized price, not simply deepest).
+    /// 5. Falls back to Jupiter only if direct venues lack depth or exceed acceptable impact.
+    /// 6. Returns decision with complete audit trail of considered venues.
+    pub fn select_route(
+        &self,
+        input_mint: CorePubkey,
+        output_mint: CorePubkey,
+        amount_in: u64,
+    ) -> Option<DexRouteDecision> {
+        let quotes = self.markets.get(&(input_mint, output_mint))?;
+        if quotes.is_empty() {
+            return None;
+        }
+
+        let mut direct_candidates: Vec<&MarketQuote> = quotes
+            .iter()
+            .filter(|q| {
+                q.venue.is_direct()
+                    && q.available_depth >= amount_in
+                    && q.price_impact_bps <= self.max_price_impact_bps
+            })
+            .collect();
+
+        // Sort direct venues by expected_out_amount descending (best realized price first)
+        direct_candidates.sort_by(|a, b| {
+            b.expected_out_amount
+                .cmp(&a.expected_out_amount)
+                .then_with(|| {
+                    // Tie-breaker: prefer Phoenix orderbook over AMMs per 02_ROUTING_DEX.md §2
+                    if a.venue == DexVenue::Phoenix {
+                        std::cmp::Ordering::Less
+                    } else if b.venue == DexVenue::Phoenix {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                })
+        });
+
+        let (winner, fallback_used) = if let Some(best_direct) = direct_candidates.first() {
+            (*best_direct, false)
+        } else {
+            // Direct venues lack sufficient depth or acceptable price impact:
+            // Check Jupiter fallback per 02_ROUTING_DEX.md §3 item 3
+            let jup_quote = quotes
+                .iter()
+                .find(|q| q.venue == DexVenue::Jupiter && q.available_depth >= amount_in)?;
+            (jup_quote, true)
+        };
+
+        let effective_price = if amount_in > 0 {
+            winner.expected_out_amount as f64 / amount_in as f64
+        } else {
+            0.0
+        };
+
+        let decision = DexRouteDecision {
+            selected_venue: winner.venue,
+            market_address: winner.market_address,
+            expected_out_amount: winner.expected_out_amount,
+            effective_price,
+            considered_venues: quotes.clone(),
+            fallback_used,
+        };
+
+        Some(decision)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pk(val: u8) -> CorePubkey {
+        CorePubkey::new([val; 32])
+    }
+
+    #[test]
+    fn test_select_route_picks_best_net_price_not_deepest() {
+        let mut router = DexRouter::new(200); // 2% max impact
+        let in_mint = pk(1);
+        let out_mint = pk(2);
+
+        // Venue 1: Orca Whirlpool — massive depth (100M), but higher fee/worse price (950k out)
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::OrcaWhirlpool,
+                market_address: pk(10),
+                available_depth: 100_000_000,
+                expected_out_amount: 950_000,
+                fee_bps: 30,
+                price_impact_bps: 50,
+            },
+        );
+
+        // Venue 2: Raydium CLMM — moderate depth (2M, sufficient for 1M trade), better price (990k out)
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::RaydiumClmm,
+                market_address: pk(20),
+                available_depth: 2_000_000,
+                expected_out_amount: 990_000,
+                fee_bps: 5,
+                price_impact_bps: 10,
+            },
+        );
+
+        let decision = router.select_route(in_mint, out_mint, 1_000_000).expect("must route");
+        assert_eq!(decision.selected_venue, DexVenue::RaydiumClmm);
+        assert_eq!(decision.expected_out_amount, 990_000);
+        assert!(!decision.fallback_used);
+        assert_eq!(decision.considered_venues.len(), 2);
+    }
+
+    #[test]
+    fn test_select_route_prefers_phoenix_on_high_volume_pairs() {
+        let mut router = DexRouter::new(200);
+        let in_mint = pk(3);
+        let out_mint = pk(4);
+
+        // AMM offers 980k out
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::MeteoraDlmm,
+                market_address: pk(30),
+                available_depth: 5_000_000,
+                expected_out_amount: 980_000,
+                fee_bps: 20,
+                price_impact_bps: 20,
+            },
+        );
+
+        // Phoenix orderbook also offers 980k out (tied net price)
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::Phoenix,
+                market_address: pk(40),
+                available_depth: 5_000_000,
+                expected_out_amount: 980_000,
+                fee_bps: 0,
+                price_impact_bps: 0,
+            },
+        );
+
+        let decision = router.select_route(in_mint, out_mint, 1_000_000).expect("must route");
+        assert_eq!(decision.selected_venue, DexVenue::Phoenix);
+        assert_eq!(decision.market_address, pk(40));
+    }
+
+    #[test]
+    fn test_select_route_falls_back_to_jupiter_when_direct_venues_lack_depth() {
+        let mut router = DexRouter::new(200);
+        let in_mint = pk(5);
+        let out_mint = pk(6);
+
+        // Direct venues only have 3M depth
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::RaydiumCpSwap,
+                market_address: pk(50),
+                available_depth: 3_000_000,
+                expected_out_amount: 2_900_000,
+                fee_bps: 25,
+                price_impact_bps: 30,
+            },
+        );
+
+        // Jupiter fallback has 50M depth
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::Jupiter,
+                market_address: pk(60),
+                available_depth: 50_000_000,
+                expected_out_amount: 9_700_000,
+                fee_bps: 10,
+                price_impact_bps: 15,
+            },
+        );
+
+        // Requesting 10M trade -> direct venue rejected for insufficient depth -> Jupiter selected
+        let decision = router.select_route(in_mint, out_mint, 10_000_000).expect("must route");
+        assert_eq!(decision.selected_venue, DexVenue::Jupiter);
+        assert!(decision.fallback_used);
+        assert_eq!(decision.expected_out_amount, 9_700_000);
+    }
+
+    #[test]
+    fn test_select_route_audit_trail_records_rejected_venues() {
+        let mut router = DexRouter::new(200);
+        let in_mint = pk(7);
+        let out_mint = pk(8);
+
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::Phoenix,
+                market_address: pk(70),
+                available_depth: 10_000_000,
+                expected_out_amount: 995_000,
+                fee_bps: 0,
+                price_impact_bps: 0,
+            },
+        );
+        router.register_market_quote(
+            in_mint,
+            out_mint,
+            MarketQuote {
+                venue: DexVenue::OrcaWhirlpool,
+                market_address: pk(71),
+                available_depth: 10_000_000,
+                expected_out_amount: 980_000,
+                fee_bps: 20,
+                price_impact_bps: 10,
+            },
+        );
+
+        let decision = router.select_route(in_mint, out_mint, 1_000_000).expect("must route");
+        assert_eq!(decision.considered_venues.len(), 2);
+        assert!(decision.considered_venues.iter().any(|q| q.venue == DexVenue::Phoenix));
+        assert!(decision.considered_venues.iter().any(|q| q.venue == DexVenue::OrcaWhirlpool));
+    }
+}

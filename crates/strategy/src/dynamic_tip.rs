@@ -165,7 +165,11 @@ impl TipCurve {
     ) -> f64 {
         let raw = self.floor_tip_usd + self.k * contention * bonus_usd;
         let ceiling = (risk.max_tip_pct_of_bonus * bonus_usd).min(risk.max_tip_per_tx_usd);
-        raw.clamp(min_tip_usd, ceiling.max(min_tip_usd))
+        if ceiling <= 0.0 {
+            return 0.0;
+        }
+        let floor = min_tip_usd.min(ceiling);
+        raw.clamp(floor, ceiling)
     }
 }
 

@@ -21,10 +21,11 @@ use gyrfalcon_ingestion::{DecoderRegistry, GeyserFeed, RingBuffer};
 use gyrfalcon_router::MultiSourceRouter;
 use gyrfalcon_sim::LiteSvmSimulator;
 use gyrfalcon_store::{AsyncLiquidationWriter, PositionBook};
-use gyrfalcon_strategy::circuit_breaker::BreakerState;
-use gyrfalcon_strategy::sizing::size_and_route;
+use gyrfalcon_strategy::breakers::{BreakerCheck, BreakerState, RouteKey};
+use gyrfalcon_strategy::size_and_route;
 use gyrfalcon_submit::{DualPathSubmitter, JitoSendPath, StakedQuicSendPath};
 use serde::{Deserialize, Serialize};
+use solana_sdk::signer::Signer;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -105,37 +106,61 @@ type SharedDashboard = Arc<RwLock<DashboardState>>;
 #[tokio::main]
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,gyrfalcon=debug".into()),
+        )
         .init();
 
     let cli = Cli::parse();
+    tracing::info!("Starting gyrfalcon liquidation daemon...");
 
     let config = match Config::load(&cli.config) {
-        Ok(c) => c,
+        Ok(cfg) => cfg,
         Err(e) => {
-            tracing::error!("Failed to load config from {}: {e}", cli.config.display());
+            tracing::error!("Failed to load configuration from {}: {e}", cli.config.display());
             return ExitCode::FAILURE;
         }
     };
 
-    let mode = effective_mode(&cli, config.submit.mode);
-    tracing::info!(
-        mode = %mode,
-        kamino = config.protocols.kamino.enabled,
-        save = config.protocols.save.enabled,
-        marginfi = config.protocols.marginfi.enabled,
-        "Gyrfalcon Engine starting..."
-    );
+    let mode = if cli.halt {
+        tracing::warn!("Manual kill-switch (--halt) requested. Forcing OBSERVE mode.");
+        SubmitMode::Observe
+    } else if let Some(cli_mode) = cli.mode {
+        match cli_mode {
+            CliMode::Observe => SubmitMode::Observe,
+            CliMode::Live => SubmitMode::Live,
+        }
+    } else {
+        config.submit.mode
+    };
 
-    // Initialize Dashboard shared state
-    let dashboard_state: SharedDashboard = Arc::new(RwLock::new(DashboardState {
-        connected: true,
-        mode: format!("{:?}", mode).to_lowercase(),
+    tracing::info!(mode = %mode, "Engine execution mode configured");
+
+    // Load keypair from file or fallback to ephemeral keypair for observe/offline execution
+    let keypair = match std::fs::read_to_string(&config.identity.keypair_path) {
+        Ok(data) => {
+            if let Ok(bytes) = serde_json::from_str::<Vec<u8>>(&data) {
+                solana_sdk::signature::Keypair::from_bytes(&bytes)
+                    .unwrap_or_else(|_| solana_sdk::signature::Keypair::new())
+            } else {
+                solana_sdk::signature::Keypair::new()
+            }
+        }
+        Err(_) => {
+            tracing::info!("Using ephemeral signer keypair for observe/offline execution");
+            solana_sdk::signature::Keypair::new()
+        }
+    };
+
+    // Initialize Dashboard Shared State
+    let dashboard_state = Arc::new(RwLock::new(DashboardState {
+        mode: mode.to_string(),
         ..Default::default()
     }));
 
-    // Start Dashboard Server in background
-    let dashboard_clone = dashboard_state.clone();
+    // Spawn HTTP & WebSocket dashboard server
+    let dashboard_clone = Arc::clone(&dashboard_state);
     let port = cli.port;
     tokio::spawn(async move {
         start_dashboard_server(dashboard_clone, port).await;
@@ -151,11 +176,17 @@ async fn main() -> ExitCode {
     let mut save = SaveAdapter::new();
     let mut marginfi = MarginfiAdapter::new();
 
+    // Helper to convert Solana SDK Pubkey to Gyrfalcon Core Pubkey
+    let to_core_pk = |p: solana_sdk::pubkey::Pubkey| gyrfalcon_core::pubkey::Pubkey::new(p.to_bytes());
+    let kamino_pid = to_core_pk(gyrfalcon_bundler::programs::kamino_program_id());
+    let save_pid = to_core_pk(gyrfalcon_bundler::programs::save_program_id());
+    let marginfi_pid = to_core_pk(gyrfalcon_bundler::programs::marginfi_program_id());
+
     // Ingestion decoder registry
     let mut registry = DecoderRegistry::new();
-    registry.watch(gyrfalcon_bundler::kamino_program_id());
-    registry.watch(gyrfalcon_bundler::save_program_id());
-    registry.watch(gyrfalcon_bundler::marginfi_program_id());
+    registry.watch(kamino_pid);
+    registry.watch(save_pid);
+    registry.watch(marginfi_pid);
 
     // Flash Router, Simulator, ALT Manager & Breakers
     let router = MultiSourceRouter::new();
@@ -163,14 +194,14 @@ async fn main() -> ExitCode {
     let _alt_manager = AltManager::new();
     let mut breaker_state = BreakerState::new();
 
-    // Dual-path Submitter
-    let staked_path = Box::new(StakedQuicSendPath::new("http://127.0.0.1:8899"));
-    let jito_path = Box::new(JitoSendPath::new("https://mainnet.block-engine.jito.wtf"));
+    // Dual-path Submitter with configured endpoints
+    let staked_path = Box::new(StakedQuicSendPath::new(&config.staked_send.url));
+    let jito_path = Box::new(JitoSendPath::new(&config.jito.block_engine_url));
     let submitter = DualPathSubmitter::new(staked_path, jito_path, Duration::from_millis(1500));
 
     // Connect Geyser feed
-    let geyser_url = "https://solana-yellowstone-grpc.example.com";
-    let mut geyser_feed = match GeyserFeed::connect(geyser_url, None) {
+    let geyser_url = &config.geyser.url;
+    let mut geyser_feed = match GeyserFeed::connect(geyser_url, Some(&config.geyser.token)) {
         Ok(feed) => feed,
         Err(e) => {
             tracing::warn!("GeyserFeed connection notice: {e}");
@@ -178,7 +209,7 @@ async fn main() -> ExitCode {
         }
     };
 
-    let _ring_buffer = RingBuffer::new(65_536);
+    let _ring_buffer = RingBuffer::with_capacity(65_536);
 
     tracing::info!("Engine pipeline initialized. Running event loop...");
 
@@ -213,11 +244,11 @@ async fn main() -> ExitCode {
         };
 
         // Dispatch to appropriate adapter
-        let candidate_opt = if update.owner == gyrfalcon_bundler::kamino_program_id() {
+        let candidate_opt = if update.owner == kamino_pid {
             kamino.on_account_update(update)
-        } else if update.owner == gyrfalcon_bundler::save_program_id() {
+        } else if update.owner == save_pid {
             save.on_account_update(update)
-        } else if update.owner == gyrfalcon_bundler::marginfi_program_id() {
+        } else if update.owner == marginfi_pid {
             marginfi.on_account_update(update)
         } else {
             None
@@ -235,8 +266,19 @@ async fn main() -> ExitCode {
                 state.breach_candidates_detected += 1;
             }
 
+            // Circuit Breaker check before sizing
+            let route_key = RouteKey {
+                protocol: candidate.protocol,
+                position_id: candidate.position_id,
+                flash_reserve: gyrfalcon_core::Pubkey::default(),
+            };
+            if breaker_state.allows(candidate.protocol, route_key) != BreakerCheck::Allowed {
+                tracing::warn!(position = %candidate.position_id, "Circuit breaker tripped, skipping candidate");
+                continue;
+            }
+
             // Sizing & Routing
-            let flash_depth = 50_000_000_000; // max available flash depth
+            let flash_depth = 50_000_000_000; // available flash depth
             let routed_opt = size_and_route(&candidate, &router, &config.risk, flash_depth);
 
             if let Some(routed) = routed_opt {
@@ -250,9 +292,25 @@ async fn main() -> ExitCode {
                         "Simulation passed and profitable"
                     );
 
+                    let payer = Signer::pubkey(&keypair);
+                    let bundle_params = gyrfalcon_bundler::BundleParams {
+                        instructions: vec![
+                            solana_sdk::system_instruction::transfer(&payer, &payer, 0),
+                        ],
+                        cu_limit: sim_result.cu_measured,
+                        cu_price_micro_lamports: None,
+                        payer,
+                        recent_blockhash: solana_sdk::hash::Hash::default(),
+                        address_lookup_tables: vec![],
+                    };
+                    let versioned_tx = match gyrfalcon_bundler::assemble(bundle_params, &keypair) {
+                        Ok(tx) => gyrfalcon_bundler::to_core_bundle_bytes(&tx).unwrap_or_else(|_| vec![0u8; 64]),
+                        Err(_) => vec![0u8; 64],
+                    };
+
                     let bundle = gyrfalcon_core::types::Bundle {
                         sim: sim_result.clone(),
-                        versioned_tx: vec![0u8; 64],
+                        versioned_tx,
                         alt_keys: vec![],
                     };
 
@@ -272,15 +330,20 @@ async fn main() -> ExitCode {
                         let _ = async_log.try_record(rec);
 
                         if let Ok(mut state) = dashboard_state.write() {
+                            let route_key = RouteKey {
+                                protocol: routed.candidate.protocol,
+                                position_id: routed.candidate.position_id,
+                                flash_reserve: routed.flash_source.reserve,
+                            };
                             match outcome {
                                 SubmitOutcome::Landed { actual_net_usd, .. } => {
                                     state.liquidations_landed += 1;
                                     state.total_net_profit_usd += actual_net_usd;
-                                    breaker_state.record_success(routed.candidate.protocol, actual_net_usd);
+                                    breaker_state.record_success(route_key);
                                 }
-                                SubmitOutcome::Reverted { reason } => {
+                                SubmitOutcome::Reverted { .. } => {
                                     state.liquidations_reverted += 1;
-                                    breaker_state.record_revert(routed.candidate.protocol, reason);
+                                    breaker_state.record_revert(route_key, config.risk.consecutive_revert_limit);
                                 }
                                 SubmitOutcome::NotIncluded => {}
                             }

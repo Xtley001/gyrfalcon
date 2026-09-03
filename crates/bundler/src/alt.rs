@@ -51,7 +51,8 @@ pub fn build_create_instruction(
     payer: &Pubkey,
     recent_slot: u64,
 ) -> (Pubkey, Instruction) {
-    create_lookup_table(*authority, *payer, recent_slot)
+    let (ix, pubkey) = create_lookup_table(*authority, *payer, recent_slot);
+    (pubkey, ix)
 }
 
 /// Splits `addresses` into as many `extend_lookup_table` instructions as

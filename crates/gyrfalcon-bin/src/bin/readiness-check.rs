@@ -172,10 +172,11 @@ fn static_checklist_items() -> Vec<CheckResult> {
         },
         CheckResult {
             item: "Staked-send + Jito dual submission tested end-to-end on devnet",
-            status: Status::Missing,
-            detail: "gyrfalcon_submit::DualPathSubmitter's race/timeout logic is unit-tested \
-                     against fakes; the real SendPath implementations for staked QUIC and Jito \
-                     are not written (need live network access) — see crates/submit/src/dual_path.rs"
+            status: Status::Manual,
+            detail: "gyrfalcon_submit::StakedQuicSendPath and JitoSendPath are implemented with \
+                     full RPC / Block Engine JSON payload formats and response parsing. Live \
+                     devnet end-to-end confirmation with a funded keypair is required before \
+                     live mainnet deployment."
                 .to_string(),
         },
         CheckResult {

@@ -31,6 +31,4 @@ solend-sdk = { git = "https://github.com/solendprotocol/solana-program-library.g
 marginfi-type-crate = { git = "https://github.com/mrgnlabs/marginfi-v2.git", rev = "4d57e2c234a41a868c519b722a6cce1c0431a699" }
 fixed.workspace = true
 solana-program.workspace = true
-
-[dev-dependencies]
-bytemuck = { version = "1", features = ["derive"] }
+bytemuck.workspace = true

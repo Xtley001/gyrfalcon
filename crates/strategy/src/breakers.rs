@@ -86,6 +86,12 @@ impl BreakerState {
         self.routes_taken_out_of_rotation.remove(&route);
     }
 
+    /// Re-arm all disabled routes across the engine.
+    pub fn rearm_all_routes(&mut self) {
+        self.consecutive_reverts.clear();
+        self.routes_taken_out_of_rotation.clear();
+    }
+
     pub fn set_treasury_below_floor(&mut self, below_floor: bool) {
         self.treasury_below_floor = below_floor;
     }

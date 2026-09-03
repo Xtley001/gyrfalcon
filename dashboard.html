@@ -315,18 +315,20 @@
         el.style.color = 'var(--snow)';
       }
     };
-    updateCB('cb-revert', (state.liquidations_reverted || 0) >= 3);
+    updateCB('cb-revert', (state.liquidations_reverted || 0) >= (state.risk_consecutive_revert_limit || 2));
     updateCB('cb-treasury', cbActive);
-    updateCB('cb-drawdown', profit < -1000);
-    updateCB('cb-synclag', (state.sync_lag_kamino || 0) > 10 || (state.sync_lag_save || 0) > 10 || (state.sync_lag_marginfi || 0) > 10);
+    updateCB('cb-drawdown', profit < -(state.risk_max_drawdown_usd || 750));
+    updateCB('cb-synclag', (state.sync_lag_kamino || 0) >= 2 || (state.sync_lag_save || 0) >= 2 || (state.sync_lag_marginfi || 0) >= 2);
 
     // Recent Liquidations Table
     const listContainer = document.getElementById('liquidations-container');
     if (state.recent_liquidations && state.recent_liquidations.length > 0) {
       let html = '<div class="table-scroll"><table class="feed-table"><thead><tr><th>Slot</th><th>Protocol</th><th>Net Profit</th><th>Status</th></tr></thead><tbody>';
       for (const item of state.recent_liquidations) {
-        const pColor = item.profit_usd >= 0 ? 'var(--green)' : 'var(--red)';
-        html += `<tr><td class="mono">#${item.slot}</td><td>${item.protocol}</td><td class="mono" style="color:${pColor}">$${(item.profit_usd || 0).toFixed(2)}</td><td><span class="badge ${item.landed ? 'active' : 'tripped'}">${item.landed ? 'LANDED' : 'REVERTED'}</span></td></tr>`;
+        const netProfit = item.net_profit_usd !== undefined ? item.net_profit_usd : (item.profit_usd || 0);
+        const pColor = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
+        const isLanded = (item.outcome && item.outcome.toLowerCase().includes('landed')) || item.landed === true;
+        html += `<tr><td class="mono">#${item.slot}</td><td>${item.protocol}</td><td class="mono" style="color:${pColor}">$${netProfit.toFixed(2)}</td><td><span class="badge ${isLanded ? 'active' : 'tripped'}">${isLanded ? 'LANDED' : 'REVERTED'}</span></td></tr>`;
       }
       html += '</tbody></table></div>';
       listContainer.innerHTML = html;

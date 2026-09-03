@@ -99,6 +99,39 @@ pub fn create_all_atas_idempotent(
         .collect()
 }
 
+/// Heterogeneous mint-to-program mapping: supports mixed SPL Token and Token-2022 mints.
+pub fn required_atas_with_programs(
+    owner: &Pubkey,
+    mints_and_programs: &[(Pubkey, Pubkey)],
+) -> Vec<Pubkey> {
+    let mut seen = std::collections::HashSet::new();
+    mints_and_programs
+        .iter()
+        .filter_map(|(mint, token_program)| {
+            let ata = spl_associated_token_account::get_associated_token_address_with_program_id(
+                owner,
+                mint,
+                token_program,
+            );
+            seen.insert(ata).then_some(ata)
+        })
+        .collect()
+}
+
+/// Builds idempotent create instructions for mixed token programs (SPL Token + Token-2022).
+pub fn create_all_atas_with_programs_idempotent(
+    payer: &Pubkey,
+    owner: &Pubkey,
+    mints_and_programs: &[(Pubkey, Pubkey)],
+) -> Vec<Instruction> {
+    let mut seen = std::collections::HashSet::new();
+    mints_and_programs
+        .iter()
+        .filter(|(mint, _)| seen.insert(*mint))
+        .map(|(mint, token_program)| create_ata_idempotent_instruction(payer, owner, mint, token_program))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

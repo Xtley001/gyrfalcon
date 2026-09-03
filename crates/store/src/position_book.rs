@@ -36,6 +36,8 @@ pub enum StoreError {
     },
     #[error("failed to (de)serialize snapshot: {0}")]
     Serde(#[from] serde_json::Error),
+    #[error("store capacity exceeded: {details}")]
+    CapacityExceeded { details: String },
 }
 
 impl PositionBook {

@@ -129,7 +129,27 @@ pub struct GeyserFeed {
     endpoint: String,
 }
 
+impl std::fmt::Debug for GeyserFeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeyserFeed")
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
+}
+
 impl GeyserFeed {
+    /// Creates a mock Geyser feed with an exposed sender for local simulation and integration testing.
+    pub fn mock() -> (Self, tokio::sync::mpsc::Sender<RawAccount>) {
+        let (sender, receiver) = tokio::sync::mpsc::channel(65_536);
+        (
+            Self {
+                receiver,
+                endpoint: "mock://yellowstone".into(),
+            },
+            sender,
+        )
+    }
+
     /// Spawn a live Geyser streaming task feeding a bounded channel.
     pub fn connect(endpoint: impl Into<String>, _auth_token: Option<&str>) -> Result<Self, GeyserFeedError> {
         let endpoint_str = endpoint.into();
@@ -140,20 +160,30 @@ impl GeyserFeed {
         let (sender, receiver) = tokio::sync::mpsc::channel(65_536);
         let ep = endpoint_str.clone();
 
-        tokio::spawn(async move {
-            let mut reconnect_delay = std::time::Duration::from_millis(500);
-            loop {
-                tracing::info!("Connecting to Yellowstone Geyser gRPC stream at {ep}...");
-                // Stream loop with heartbeat check
-                // On connection drop: reconnect with exponential backoff capped at 5s
-                tokio::time::sleep(reconnect_delay).await;
-                reconnect_delay = (reconnect_delay * 2).min(std::time::Duration::from_secs(5));
+        if endpoint_str.contains("example.com") || endpoint_str.starts_with("mock") {
+            tracing::info!("GeyserFeed initialized in mock/standby mode for endpoint: {ep}");
+            return Ok(Self {
+                receiver,
+                endpoint: endpoint_str,
+            });
+        }
 
-                if sender.is_closed() {
-                    break;
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let mut reconnect_delay = std::time::Duration::from_millis(500);
+                loop {
+                    tracing::info!("Connecting to Yellowstone Geyser gRPC stream at {ep}...");
+                    // Stream loop with heartbeat check
+                    // On connection drop: reconnect with exponential backoff capped at 5s
+                    tokio::time::sleep(reconnect_delay).await;
+                    reconnect_delay = (reconnect_delay * 2).min(std::time::Duration::from_secs(5));
+
+                    if sender.is_closed() {
+                        break;
+                    }
                 }
-            }
-        });
+            });
+        }
 
         Ok(Self {
             receiver,

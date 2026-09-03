@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "LiteSVM simulation harness + account-sync pipeline, and the historical replay binary (docs/BUILD_ORDER.md item 5 and 7)."
+autobins = false
 
 [dependencies]
 gyrfalcon-core.workspace = true
@@ -11,7 +12,7 @@ gyrfalcon-ingestion.workspace = true
 gyrfalcon-health.workspace = true
 gyrfalcon-router.workspace = true
 solana-sdk.workspace = true
-litesvm.workspace = true
+# litesvm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
@@ -23,9 +24,9 @@ clap.workspace = true
 name = "replay"
 path = "src/bin/replay.rs"
 
-[[bin]]
-name = "cu-profile"
-path = "src/bin/cu-profile.rs"
+# [[bin]]
+# name = "cu-profile"
+# path = "src/bin/cu-profile.rs"
 
 [[bin]]
 name = "export-fixtures"

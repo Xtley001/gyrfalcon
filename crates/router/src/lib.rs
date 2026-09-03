@@ -24,6 +24,9 @@
 //! adapters (via `klend-interface`): this crate could not be built/tested
 //! in the sandbox that wrote it.
 
+pub mod dex;
+pub use dex::{DexRouteDecision, DexRouter, DexVenue, MarketQuote};
+
 use gyrfalcon_core::types::FlashSource;
 use gyrfalcon_core::{FlashSourceRouter, Protocol, Pubkey as CorePubkey};
 use klend_interface::state::{
@@ -73,15 +76,71 @@ struct ReserveInfo {
 }
 
 /// `gyrfalcon_core::FlashSourceRouter` backed by both Kamino and Save
-/// reserves.
-#[derive(Debug, Default)]
+/// reserves, with protocol live-verification gating per `01_PROTOCOLS.md §2`.
+#[derive(Debug, Clone, Default)]
 pub struct MultiSourceRouter {
     reserves: HashMap<CorePubkey, ReserveInfo>,
+    save_live_verified: bool,
+    marginfi_live_verified: bool,
 }
 
 impl MultiSourceRouter {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            reserves: HashMap::new(),
+            save_live_verified: false,
+            marginfi_live_verified: false,
+        }
+    }
+
+    /// Enable or disable live flash-loan selection for Save reserves.
+    ///
+    /// Per `01_PROTOCOLS.md §2 (Save)`: Save reserves may be observed and
+    /// ranked for depth/fee comparison, but live routing must fall through to
+    /// Kamino until verified on-chain.
+    pub fn set_save_live_verified(&mut self, verified: bool) {
+        self.save_live_verified = verified;
+    }
+
+    /// Query whether Save flash loans are enabled for live execution.
+    pub fn is_save_live_verified(&self) -> bool {
+        self.save_live_verified
+    }
+
+    /// Enable or disable live flash-loan selection for MarginFi reserves.
+    pub fn set_marginfi_live_verified(&mut self, verified: bool) {
+        self.marginfi_live_verified = verified;
+    }
+
+    /// Query whether MarginFi flash loans are enabled for live execution.
+    pub fn is_marginfi_live_verified(&self) -> bool {
+        self.marginfi_live_verified
+    }
+
+    /// Rank all observed candidate sources without gating, for offline telemetry,
+    /// simulation, and depth/fee comparison across protocols (Whitepaper Eq. 3).
+    pub fn rank_all_sources(&self, mint: CorePubkey, amount: u64) -> Vec<FlashSource> {
+        let mut candidates: Vec<FlashSource> = self
+            .reserves
+            .iter()
+            .filter(|(_, info)| info.mint == mint)
+            .filter(|(_, info)| info.available_liquidity >= amount)
+            .filter_map(|(reserve_key, info)| {
+                info.fee_bps.map(|fee_bps| FlashSource {
+                    protocol: info.protocol,
+                    reserve: *reserve_key,
+                    fee_bps,
+                })
+            })
+            .collect();
+
+        candidates.sort_by(|a, b| {
+            let a_liq = self.reserves.get(&a.reserve).map(|r| r.available_liquidity).unwrap_or(0);
+            let b_liq = self.reserves.get(&b.reserve).map(|r| r.available_liquidity).unwrap_or(0);
+            a.fee_bps.cmp(&b.fee_bps).then(b_liq.cmp(&a_liq))
+        });
+
+        candidates
     }
 
     /// Feed one raw Kamino-program account update. No-op for anything
@@ -125,6 +184,59 @@ impl MultiSourceRouter {
         );
     }
 
+    /// Feed one raw MarginFi bank account update. No-op for anything that
+    /// doesn't match MarginFi's Bank discriminator.
+    pub fn observe_marginfi_account(&mut self, pubkey: CorePubkey, data: &[u8]) {
+        // Anchor discriminator: sha256("account:Bank")[..8]
+        const MARGINFI_BANK_DISCRIMINATOR: [u8; 8] = [142, 49, 166, 242, 50, 66, 97, 188];
+        if data.len() < 72 || data[..8] != MARGINFI_BANK_DISCRIMINATOR {
+            return;
+        }
+
+        // MarginFi Bank layout:
+        // offset 8..40: group: Pubkey
+        // offset 40..72: mint: Pubkey
+        let mut mint_bytes = [0u8; 32];
+        mint_bytes.copy_from_slice(&data[40..72]);
+        let mint = CorePubkey::new(mint_bytes);
+
+        // Read available liquidity if provided at offset 72..80
+        let available_liquidity = if data.len() >= 80 {
+            u64::from_le_bytes(data[72..80].try_into().unwrap_or([0; 8]))
+        } else {
+            0
+        };
+
+        self.reserves.insert(
+            pubkey,
+            ReserveInfo {
+                protocol: Protocol::MarginFi,
+                mint,
+                available_liquidity,
+                fee_bps: Some(0), // MarginFi intra-transaction flash loans charge 0 protocol fee
+            },
+        );
+    }
+
+    /// Directly record or update a MarginFi bank's observed parameters.
+    pub fn observe_marginfi_bank(
+        &mut self,
+        pubkey: CorePubkey,
+        mint: CorePubkey,
+        available_liquidity: u64,
+        fee_bps: Option<u32>,
+    ) {
+        self.reserves.insert(
+            pubkey,
+            ReserveInfo {
+                protocol: Protocol::MarginFi,
+                mint,
+                available_liquidity,
+                fee_bps: fee_bps.or(Some(0)),
+            },
+        );
+    }
+
     pub fn tracked_reserve_count(&self) -> usize {
         self.reserves.len()
     }
@@ -136,13 +248,18 @@ impl FlashSourceRouter for MultiSourceRouter {
             .iter()
             .filter(|(_, info)| info.mint == mint)
             .filter(|(_, info)| info.available_liquidity >= amount)
+            .filter(|(_, info)| match info.protocol {
+                Protocol::Kamino => true,
+                Protocol::Save => self.save_live_verified,
+                Protocol::MarginFi => self.marginfi_live_verified,
+            })
             .filter_map(|(reserve_key, info)| {
                 info.fee_bps.map(|fee_bps| (reserve_key, info, fee_bps))
             })
-            // Lowest fee wins, across protocols; ties broken by deepest
+            // Lowest fee wins, across verified protocols; ties broken by deepest
             // liquidity so the pick is deterministic given identical fees
             // — this is Whitepaper Eq. 3's comparison, now meaningfully
-            // multi-source (Stage C item 13).
+            // multi-source and gated on verified flash execution (01_PROTOCOLS.md §2).
             .min_by(|(_, a, a_fee), (_, b, b_fee)| {
                 a_fee
                     .cmp(b_fee)
@@ -227,15 +344,32 @@ mod tests {
             &encode_save(sample_save_reserve(save_pk(9), 1_000_000, 3)),
         );
 
-        let source = router.route(core_pk(9), 500_000).expect("should route");
-        assert_eq!(source.protocol, Protocol::Save);
-        assert_eq!(source.fee_bps, 3);
-        assert_eq!(source.reserve, core_pk(2));
+        // Before live verification: Save offers a 3 bps fee vs Kamino's 10 bps,
+        // but Save is unverified for live execution (01_PROTOCOLS.md §2).
+        // Live routing MUST fall through to Kamino!
+        let unverified_live = router.route(core_pk(9), 500_000).expect("should fall through to Kamino");
+        assert_eq!(unverified_live.protocol, Protocol::Kamino);
+        assert_eq!(unverified_live.fee_bps, 10);
+        assert_eq!(unverified_live.reserve, core_pk(1));
+
+        // Unrestricted ranking (telemetry / simulation) sees Save as lower fee:
+        let all_sources = router.rank_all_sources(core_pk(9), 500_000);
+        assert_eq!(all_sources.len(), 2);
+        assert_eq!(all_sources[0].protocol, Protocol::Save);
+        assert_eq!(all_sources[0].fee_bps, 3);
+
+        // After live verification is enabled: Save is selected as the live flash source!
+        router.set_save_live_verified(true);
+        let verified_live = router.route(core_pk(9), 500_000).expect("should route to Save");
+        assert_eq!(verified_live.protocol, Protocol::Save);
+        assert_eq!(verified_live.fee_bps, 3);
+        assert_eq!(verified_live.reserve, core_pk(2));
     }
 
     #[test]
     fn falls_back_to_kamino_when_save_lacks_depth() {
         let mut router = MultiSourceRouter::new();
+        router.set_save_live_verified(true);
         router.observe_kamino_account(
             core_pk(1),
             &encode_kamino(&sample_kamino_reserve(kamino_pk(9), 1_000_000, Some(10))),
@@ -262,8 +396,14 @@ mod tests {
             &encode_save(sample_save_reserve(save_pk(9), 1_000_000, 7)),
         );
 
+        // When Kamino is disabled and Save is unverified: cannot route live
+        assert!(router.route(core_pk(9), 500_000).is_none());
+
+        // Once Save is verified: routes to Save
+        router.set_save_live_verified(true);
         let source = router.route(core_pk(9), 500_000).unwrap();
         assert_eq!(source.protocol, Protocol::Save);
+        assert_eq!(source.fee_bps, 7);
     }
 
     #[test]
@@ -284,5 +424,131 @@ mod tests {
     fn returns_none_for_unknown_mint() {
         let router = MultiSourceRouter::new();
         assert!(router.route(core_pk(42), 1).is_none());
+    }
+
+    #[test]
+    fn test_unverified_save_is_bypassed_in_favor_of_kamino() {
+        let mut router = MultiSourceRouter::new();
+        assert!(!router.is_save_live_verified());
+
+        // Save has lower fee (1 bps) and deeper liquidity (10M) than Kamino (5 bps, 2M)
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(5), 2_000_000, Some(5))),
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(5), 10_000_000, 1)),
+        );
+
+        // Unverified: must fall through to Kamino
+        let live_pick = router.route(core_pk(5), 1_000_000).expect("must route to Kamino");
+        assert_eq!(live_pick.protocol, Protocol::Kamino);
+        assert_eq!(live_pick.reserve, core_pk(1));
+        assert_eq!(live_pick.fee_bps, 5);
+
+        // Now enable Save verification: must switch to Save
+        router.set_save_live_verified(true);
+        assert!(router.is_save_live_verified());
+
+        let verified_pick = router.route(core_pk(5), 1_000_000).expect("must route to Save");
+        assert_eq!(verified_pick.protocol, Protocol::Save);
+        assert_eq!(verified_pick.reserve, core_pk(2));
+        assert_eq!(verified_pick.fee_bps, 1);
+    }
+
+    #[test]
+    fn test_unverified_save_sole_source_returns_none() {
+        let mut router = MultiSourceRouter::new();
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(7), 5_000_000, 2)),
+        );
+
+        // Sole source is unverified Save -> cannot route
+        assert!(router.route(core_pk(7), 100_000).is_none());
+
+        // Gating unlocked -> routes
+        router.set_save_live_verified(true);
+        let pick = router.route(core_pk(7), 100_000).expect("should route once verified");
+        assert_eq!(pick.protocol, Protocol::Save);
+    }
+
+    #[test]
+    fn test_unverified_marginfi_is_bypassed_in_favor_of_kamino() {
+        let mut router = MultiSourceRouter::new();
+        assert!(!router.is_marginfi_live_verified());
+
+        // MarginFi has 0 bps fee, Kamino has 8 bps fee
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(11), 1_000_000, Some(8))),
+        );
+        router.observe_marginfi_bank(core_pk(2), core_pk(11), 2_000_000, Some(0));
+
+        // When unverified: MarginFi is excluded, falls through to Kamino
+        let unverified_live = router.route(core_pk(11), 500_000).expect("should route to Kamino");
+        assert_eq!(unverified_live.protocol, Protocol::Kamino);
+        assert_eq!(unverified_live.reserve, core_pk(1));
+        assert_eq!(unverified_live.fee_bps, 8);
+
+        // When verified: MarginFi is selected (0 bps vs 8 bps)
+        router.set_marginfi_live_verified(true);
+        assert!(router.is_marginfi_live_verified());
+
+        let verified_live = router.route(core_pk(11), 500_000).expect("should route to MarginFi");
+        assert_eq!(verified_live.protocol, Protocol::MarginFi);
+        assert_eq!(verified_live.reserve, core_pk(2));
+        assert_eq!(verified_live.fee_bps, 0);
+    }
+
+    #[test]
+    fn test_marginfi_raw_bank_account_observation() {
+        let mut router = MultiSourceRouter::new();
+
+        // Construct a raw buffer with Anchor Bank discriminator + group + mint + liquidity
+        const MARGINFI_BANK_DISCRIMINATOR: [u8; 8] = [142, 49, 166, 242, 50, 66, 97, 188];
+        let mut raw_data = Vec::new();
+        raw_data.extend_from_slice(&MARGINFI_BANK_DISCRIMINATOR);
+        raw_data.extend_from_slice(&[10u8; 32]); // group (offset 8..40)
+        raw_data.extend_from_slice(&[13u8; 32]); // mint (offset 40..72)
+        raw_data.extend_from_slice(&5_000_000u64.to_le_bytes()); // available liquidity (offset 72..80)
+
+        router.observe_marginfi_account(core_pk(3), &raw_data);
+        assert_eq!(router.tracked_reserve_count(), 1);
+
+        // Unverified -> None
+        assert!(router.route(core_pk(13), 100_000).is_none());
+
+        // Verified -> Routes to MarginFi
+        router.set_marginfi_live_verified(true);
+        let pick = router.route(core_pk(13), 100_000).expect("should route to MarginFi");
+        assert_eq!(pick.protocol, Protocol::MarginFi);
+        assert_eq!(pick.fee_bps, 0);
+        assert_eq!(pick.reserve, core_pk(3));
+    }
+
+    #[test]
+    fn test_rank_all_sources_places_marginfi_first_when_zero_fee() {
+        let mut router = MultiSourceRouter::new();
+
+        router.observe_kamino_account(
+            core_pk(1),
+            &encode_kamino(&sample_kamino_reserve(kamino_pk(22), 1_000_000, Some(10))),
+        );
+        router.observe_save_account(
+            core_pk(2),
+            &encode_save(sample_save_reserve(save_pk(22), 1_000_000, 3)),
+        );
+        router.observe_marginfi_bank(core_pk(3), core_pk(22), 1_000_000, Some(0));
+
+        let ranked = router.rank_all_sources(core_pk(22), 500_000);
+        assert_eq!(ranked.len(), 3);
+        assert_eq!(ranked[0].protocol, Protocol::MarginFi);
+        assert_eq!(ranked[0].fee_bps, 0);
+        assert_eq!(ranked[1].protocol, Protocol::Save);
+        assert_eq!(ranked[1].fee_bps, 3);
+        assert_eq!(ranked[2].protocol, Protocol::Kamino);
+        assert_eq!(ranked[2].fee_bps, 10);
     }
 }

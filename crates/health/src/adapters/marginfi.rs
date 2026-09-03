@@ -157,7 +157,7 @@ impl MarginfiAdapter {
 
         let asset_value = wrapped_to_f64(account.health_cache.asset_value_maint);
         let liability_value = wrapped_to_f64(account.health_cache.liability_value_maint);
-        if liability_value <= 0.0 {
+        if liability_value <= 0.0 || asset_value <= 0.0 {
             self.known_accounts.insert(pubkey, AccountSnapshot { slot, close_factor_max_repay: 0 });
             return None;
         }
@@ -189,7 +189,8 @@ impl MarginfiAdapter {
 
         let liability_shares = wrapped_to_f64(debt_balance.liability_shares);
         let liability_native = (liability_shares * debt_bank.liability_share_value).max(0.0);
-        let close_factor_max_repay = liability_native as u64;
+        // MarginFi enforces a max liquidation close factor of 50%
+        let close_factor_max_repay = (liability_native * 0.50) as u64;
 
         self.known_accounts.insert(
             pubkey,

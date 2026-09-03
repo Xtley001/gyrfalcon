@@ -90,13 +90,8 @@ fn decimal_to_f64(d: solend_sdk::math::Decimal) -> f64 {
 #[derive(Debug, Clone, Copy)]
 struct ReserveSnapshot {
     liquidity_mint: CorePubkey,
+    mint_decimals: u8,
     slot: u64,
-    /// Save's own on-chain staleness verdict (`LastUpdate.stale`,
-    /// `docs/RUNBOOK.md`'s "oracle staleness/confidence handling"
-    /// checklist item) plus the slot it was last refreshed at, so
-    /// [`SaveAdapter::reserve_price_is_stale`] can also apply
-    /// `STALE_AFTER_SLOTS_ELAPSED` itself rather than trusting a flag that
-    /// may not have been recomputed since this specific account update.
     last_update_slot: u64,
     last_update_stale_flag: bool,
 }
@@ -133,6 +128,7 @@ impl SaveAdapter {
                 pubkey,
                 ReserveSnapshot {
                     liquidity_mint: to_core_pubkey(reserve.liquidity.mint_pubkey),
+                    mint_decimals: reserve.liquidity.mint_decimals,
                     slot,
                     last_update_slot: reserve.last_update.slot,
                     last_update_stale_flag: reserve.last_update.stale,
@@ -172,6 +168,10 @@ impl SaveAdapter {
             return None;
         }
         let unhealthy = decimal_to_f64(obligation.unhealthy_borrow_value);
+        if unhealthy <= 0.0 {
+            self.known_obligations.insert(pubkey, ObligationSnapshot { slot, close_factor_max_repay: 0 });
+            return None; // no collateral deposited, cannot liquidate profitably
+        }
         let health_factor = unhealthy / borrowed;
         if health_factor >= 1.0 {
             self.known_obligations.insert(pubkey, ObligationSnapshot { slot, close_factor_max_repay: 0 });
@@ -192,9 +192,11 @@ impl SaveAdapter {
         let collateral_reserve_key = to_core_pubkey(collateral.deposit_reserve);
         let collateral_reserve = self.reserves.get(&collateral_reserve_key)?;
 
-        // Full outstanding borrow, not a 20% slice — see the module doc's
-        // "vestigial constants" section.
-        let close_factor_max_repay = decimal_to_f64(liquidity.borrowed_amount_wads).max(0.0) as u64;
+        let decimals = debt_reserve.mint_decimals;
+        let mut close_factor_max_repay = decimal_to_f64(liquidity.borrowed_amount_wads).max(0.0) as u64;
+        if decimals > 0 && close_factor_max_repay < 1_000_000 {
+            close_factor_max_repay = (decimal_to_f64(liquidity.borrowed_amount_wads) * 10f64.powi(decimals as i32)).max(0.0) as u64;
+        }
 
         self.known_obligations.insert(
             pubkey,
@@ -223,24 +225,29 @@ impl HealthAdapter for SaveAdapter {
         }
         self.current_slot = self.current_slot.max(update.slot);
 
-        // Save accounts have no zero-copy discriminator prefix (see the
-        // module doc) — instead, disambiguate by attempting each unpack
-        // in turn (LendingMarket first, since it's a fixed small size and
-        // cheapest to rule out). A byte buffer that fails all three is
-        // simply not one of the account types this adapter tracks.
-        if let Ok(market) = LendingMarket::unpack_from_slice(&update.data) {
-            let _ = market; // no market-level config needed post-vestigial-constants finding
-            self.last_synced_slot = update.slot;
-            return None;
-        }
-        if Reserve::unpack_from_slice(&update.data).is_ok() {
-            self.handle_reserve(update.pubkey, &update.data, update.slot);
-            self.last_synced_slot = update.slot;
-            return None;
-        }
-        if Obligation::unpack_from_slice(&update.data).is_ok() {
+        // Save accounts have distinct fixed sizes (LendingMarket: 290, Reserve: 619, Obligation: 1300).
+        // Disambiguate by checking account length before unpacking, avoiding false LendingMarket matches.
+        if update.data.len() == Reserve::LEN {
+            if let Ok(reserve) = Reserve::unpack_from_slice(&update.data) {
+                self.reserves.insert(
+                    update.pubkey,
+                    ReserveSnapshot {
+                        liquidity_mint: to_core_pubkey(reserve.liquidity.mint_pubkey),
+                        mint_decimals: reserve.liquidity.mint_decimals,
+                        slot: update.slot,
+                        last_update_slot: reserve.last_update.slot,
+                        last_update_stale_flag: reserve.last_update.stale,
+                    },
+                );
+                self.last_synced_slot = update.slot;
+                return None;
+            }
+        } else if update.data.len() == Obligation::LEN {
             self.last_synced_slot = update.slot;
             return self.handle_obligation(update.pubkey, &update.data, update.slot);
+        } else if update.data.len() == LendingMarket::LEN {
+            self.last_synced_slot = update.slot;
+            return None;
         }
         None
     }

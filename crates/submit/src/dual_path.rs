@@ -98,7 +98,7 @@ impl SendPath for StakedQuicSendPath {
                 }
             }
             Ok(_) => PathOutcome::Reverted {
-                reason: RevertReason::InstructionError,
+                reason: RevertReason::ProgramError("transaction failed on-chain".to_string()),
             },
             Err(_) => PathOutcome::TimedOut,
         }
@@ -149,7 +149,7 @@ impl SendPath for JitoSendPath {
                 }
             }
             Ok(_) => PathOutcome::Reverted {
-                reason: RevertReason::InstructionError,
+                reason: RevertReason::ProgramError("transaction failed on-chain".to_string()),
             },
             Err(_) => PathOutcome::TimedOut,
         }
@@ -160,10 +160,148 @@ impl SendPath for JitoSendPath {
     }
 }
 
+/// 8 verified official Jito tip accounts on Solana Mainnet-Beta per
+/// `03_SUBMISSION_LATENCY.md §2`.
+pub const DEFAULT_JITO_TIP_ACCOUNTS: [&str; 8] = [
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+    "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+    "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+    "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+    "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+    "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+];
+
+/// Jito tip account manager handling dynamic polling via `getTipAccounts`
+/// with hard fallback to the 8 verified accounts on failure.
+pub struct JitoTipManager {
+    block_engine_url: String,
+    active_tip_accounts: std::sync::RwLock<Vec<String>>,
+    client: reqwest::Client,
+}
+
+impl JitoTipManager {
+    pub fn new(block_engine_url: impl Into<String>) -> Self {
+        Self {
+            block_engine_url: block_engine_url.into(),
+            active_tip_accounts: std::sync::RwLock::new(
+                DEFAULT_JITO_TIP_ACCOUNTS.iter().map(|s| s.to_string()).collect(),
+            ),
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_millis(1500))
+                .build()
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Retrieve the currently active tip accounts.
+    pub fn get_active_tip_accounts(&self) -> Vec<String> {
+        self.active_tip_accounts
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| DEFAULT_JITO_TIP_ACCOUNTS.iter().map(|s| s.to_string()).collect())
+    }
+
+    /// Select one tip account pseudo-randomly to spread load per Jito guidance.
+    pub fn random_tip_account(&self) -> String {
+        let accounts = self.get_active_tip_accounts();
+        if accounts.is_empty() {
+            return DEFAULT_JITO_TIP_ACCOUNTS[0].to_string();
+        }
+        let idx = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as usize)
+            .unwrap_or(0))
+            % accounts.len();
+        accounts[idx].clone()
+    }
+
+    /// Overwrite the active tip accounts directly (for testing or overrides).
+    pub fn update_accounts(&self, accounts: Vec<String>) {
+        if let Ok(mut guard) = self.active_tip_accounts.write() {
+            *guard = accounts;
+        }
+    }
+
+    /// Call `getTipAccounts` on the Jito Block Engine endpoint.
+    /// Updates the active list on success; falls back to `DEFAULT_JITO_TIP_ACCOUNTS` on failure.
+    pub async fn refresh_tip_accounts(&self) -> Result<Vec<String>, String> {
+        let endpoint = format!("{}/api/v1/bundles", self.block_engine_url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTipAccounts",
+            "params": []
+        });
+
+        match self.client.post(&endpoint).json(&payload).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    if let Some(arr) = body.get("result").and_then(|r| r.as_array()) {
+                        let parsed: Vec<String> = arr
+                            .iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect();
+                        if !parsed.is_empty() {
+                            self.update_accounts(parsed.clone());
+                            tracing::info!(count = parsed.len(), "Refreshed Jito tip accounts from live endpoint");
+                            return Ok(parsed);
+                        }
+                    }
+                }
+                self.fallback_to_defaults("invalid or empty JSON-RPC response from getTipAccounts")
+            }
+            Ok(resp) => self.fallback_to_defaults(&format!("HTTP error {}", resp.status())),
+            Err(e) => self.fallback_to_defaults(&format!("network error: {e}")),
+        }
+    }
+
+    fn fallback_to_defaults(&self, reason: &str) -> Result<Vec<String>, String> {
+        let fallback: Vec<String> = DEFAULT_JITO_TIP_ACCOUNTS.iter().map(|s| s.to_string()).collect();
+        self.update_accounts(fallback.clone());
+        tracing::warn!(reason = reason, "Failed to refresh Jito tip accounts, falling back to 8 verified defaults");
+        Err(format!("Fallback to defaults: {reason}"))
+    }
+}
+
+/// Provider trait for leader-schedule awareness.
+pub trait LeaderScheduleProvider: Send + Sync {
+    /// Check whether any of the upcoming slots in the window [current_slot, current_slot + leaders_ahead]
+    /// are scheduled to be led by a Jito-Solana validator.
+    fn has_jito_leader_in_window(&self, current_slot: u64, leaders_ahead: u32) -> bool;
+}
+
+/// Static leader-schedule implementation for testing and offline simulation.
+pub struct StaticLeaderSchedule {
+    jito_slots: std::collections::HashSet<u64>,
+}
+
+impl StaticLeaderSchedule {
+    pub fn new(jito_slots: impl IntoIterator<Item = u64>) -> Self {
+        Self {
+            jito_slots: jito_slots.into_iter().collect(),
+        }
+    }
+}
+
+impl LeaderScheduleProvider for StaticLeaderSchedule {
+    fn has_jito_leader_in_window(&self, current_slot: u64, leaders_ahead: u32) -> bool {
+        for slot in current_slot..=current_slot + (leaders_ahead as u64) {
+            if self.jito_slots.contains(&slot) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 pub struct DualPathSubmitter {
     staked_quic: Box<dyn SendPath>,
     jito: Box<dyn SendPath>,
     timeout: Duration,
+    leaders_ahead: u32,
+    leader_schedule: Option<Box<dyn LeaderScheduleProvider>>,
 }
 
 impl DualPathSubmitter {
@@ -172,13 +310,54 @@ impl DualPathSubmitter {
             staked_quic,
             jito,
             timeout,
+            leaders_ahead: 2,
+            leader_schedule: None,
         }
+    }
+
+    pub fn with_leader_schedule(
+        mut self,
+        leaders_ahead: u32,
+        schedule: Box<dyn LeaderScheduleProvider>,
+    ) -> Self {
+        self.leaders_ahead = leaders_ahead;
+        self.leader_schedule = Some(schedule);
+        self
     }
 }
 
 #[async_trait]
 impl Submitter for DualPathSubmitter {
     async fn submit(&self, bundle: Bundle) -> SubmitOutcome {
+        let current_slot = bundle.sim.routed.candidate.slot;
+        let should_send_jito = match &self.leader_schedule {
+            Some(schedule) => {
+                let has_jito = schedule.has_jito_leader_in_window(current_slot, self.leaders_ahead);
+                if !has_jito {
+                    tracing::warn!(
+                        slot = current_slot,
+                        leaders_ahead = self.leaders_ahead,
+                        "Skipping Jito submission leg: no Jito-Solana validator in the next leaders_ahead window"
+                    );
+                }
+                has_jito
+            }
+            None => true,
+        };
+
+        if !should_send_jito {
+            // Jito leg skipped: only staked QUIC leg fires
+            let staked_result = match tokio::time::timeout(self.timeout, self.staked_quic.send(&bundle)).await {
+                Ok(res) => res,
+                Err(_) => PathOutcome::TimedOut,
+            };
+            return match staked_result {
+                PathOutcome::Landed { slot, actual_net_usd } => SubmitOutcome::Landed { slot, actual_net_usd },
+                PathOutcome::Reverted { reason } => SubmitOutcome::Reverted { reason },
+                PathOutcome::TimedOut => SubmitOutcome::NotIncluded,
+            };
+        }
+
         let staked = self.staked_quic.send(&bundle);
         let jito = self.jito.send(&bundle);
 
@@ -343,5 +522,112 @@ mod tests {
 
         let outcome = submitter.submit(dummy_bundle()).await;
         assert_eq!(outcome, SubmitOutcome::NotIncluded);
+    }
+
+    #[tokio::test]
+    async fn test_get_tip_accounts_fallback_and_live_refresh() {
+        assert_eq!(DEFAULT_JITO_TIP_ACCOUNTS.len(), 8);
+
+        // Initialized tip manager contains the 8 verified defaults
+        let manager = JitoTipManager::new("http://127.0.0.1:19999");
+        let initial = manager.get_active_tip_accounts();
+        assert_eq!(initial.len(), 8);
+        assert_eq!(initial[0], DEFAULT_JITO_TIP_ACCOUNTS[0]);
+
+        // Direct update works
+        let custom = vec!["CustomTip1".to_string(), "CustomTip2".to_string()];
+        manager.update_accounts(custom.clone());
+        assert_eq!(manager.get_active_tip_accounts(), custom);
+
+        // Failed live call triggers fallback back to the 8 verified defaults
+        let res = manager.refresh_tip_accounts().await;
+        assert!(res.is_err());
+        let fallback = manager.get_active_tip_accounts();
+        assert_eq!(fallback.len(), 8);
+        assert_eq!(fallback[0], DEFAULT_JITO_TIP_ACCOUNTS[0]);
+    }
+
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    struct TrackedPath {
+        called: Arc<AtomicBool>,
+        outcome: PathOutcome,
+        delay: Duration,
+        name: &'static str,
+    }
+
+    #[async_trait]
+    impl SendPath for TrackedPath {
+        async fn send(&self, _bundle: &Bundle) -> PathOutcome {
+            self.called.store(true, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            self.outcome.clone()
+        }
+        fn name(&self) -> &'static str {
+            self.name
+        }
+    }
+
+    #[tokio::test]
+    async fn test_leader_awareness_skips_jito_leg_when_no_jito_leader() {
+        let staked_called = Arc::new(AtomicBool::new(false));
+        let jito_called = Arc::new(AtomicBool::new(false));
+
+        let staked = Box::new(TrackedPath {
+            called: staked_called.clone(),
+            outcome: PathOutcome::Landed { slot: 101, actual_net_usd: 50.0 },
+            delay: Duration::from_millis(5),
+            name: "staked_quic",
+        });
+        let jito = Box::new(TrackedPath {
+            called: jito_called.clone(),
+            outcome: PathOutcome::Landed { slot: 101, actual_net_usd: 50.0 },
+            delay: Duration::from_millis(5),
+            name: "jito",
+        });
+
+        // Bundle is for slot 100, schedule only has Jito on slot 200 (far ahead)
+        let schedule = Box::new(StaticLeaderSchedule::new([200]));
+        let submitter = DualPathSubmitter::new(staked, jito, Duration::from_secs(1))
+            .with_leader_schedule(2, schedule);
+
+        let outcome = submitter.submit(dummy_bundle()).await;
+        assert!(matches!(outcome, SubmitOutcome::Landed { slot: 101, .. }));
+
+        // Staked QUIC must have fired; Jito must NOT have fired
+        assert!(staked_called.load(Ordering::SeqCst));
+        assert!(!jito_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_leader_awareness_fires_jito_leg_when_jito_leader_present() {
+        let staked_called = Arc::new(AtomicBool::new(false));
+        let jito_called = Arc::new(AtomicBool::new(false));
+
+        let staked = Box::new(TrackedPath {
+            called: staked_called.clone(),
+            outcome: PathOutcome::Landed { slot: 101, actual_net_usd: 50.0 },
+            delay: Duration::from_millis(5),
+            name: "staked_quic",
+        });
+        let jito = Box::new(TrackedPath {
+            called: jito_called.clone(),
+            outcome: PathOutcome::Landed { slot: 101, actual_net_usd: 50.0 },
+            delay: Duration::from_millis(5),
+            name: "jito",
+        });
+
+        // Bundle is for slot 100, schedule has Jito validator on slot 101 (within 2 slots)
+        let schedule = Box::new(StaticLeaderSchedule::new([101]));
+        let submitter = DualPathSubmitter::new(staked, jito, Duration::from_secs(1))
+            .with_leader_schedule(2, schedule);
+
+        let outcome = submitter.submit(dummy_bundle()).await;
+        assert!(matches!(outcome, SubmitOutcome::Landed { slot: 101, .. }));
+
+        // Both legs must have fired
+        assert!(staked_called.load(Ordering::SeqCst));
+        assert!(jito_called.load(Ordering::SeqCst));
     }
 }

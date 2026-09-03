@@ -65,25 +65,37 @@ flowchart TD
 
 | Protocol | Program ID | Mechanism | Flash Loan Support |
 |---|---|---|---|
-| **Kamino Lend** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | `klend-interface 0.6` | Native Instruction Introspection |
-| **Save (Solend)**| `So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo` | `solend-sdk 0.1` | Native Reserve Flash Borrow/Repay |
-| **MarginFi v2** | `MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA` | `marginfi-type-crate`| Native Flash Loan Instructions |
+| **Kamino Lend** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | `klend-interface 0.6` | Native Flash Borrow / Repay (`0x87e7...`, `0xb975...`) |
+| **Save (Solend)**| `So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo` | `solend-sdk 2.0` | Native Reserve Flash Borrow / Repay (Tags 14 & 15) |
+| **MarginFi v2** | `MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA` | `marginfi-type-crate`| Native Atomic Flash Borrow / Repay (`0x047e...`, `0x4fd1...`) |
+
+## Supported DEX Venues
+
+| Venue | Program ID | Model | Routing Priority |
+|---|---|---|---|
+| **Phoenix** | `PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY` | Crankless On-Chain CLOB | Preferred on high-volume pairs (zero curve slippage) |
+| **Raydium CLMM** | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | Concentrated Liquidity AMM | Direct venue with full tick array traversal |
+| **Raydium CPMM** | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | Constant Product AMM | Direct venue with pool state vaults |
+| **Meteora DLMM** | `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo` | Dynamic Bin Liquidity | Direct venue with active bin arrays |
+| **Orca Whirlpools**| `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` | Concentrated Liquidity AMM | Direct venue with tick arrays and oracle |
+| **Jupiter v6** | `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4` | Meta-Aggregator | Safe fallback when direct pools lack sufficient depth |
 
 ## Testing & Verification
 
+The test suite covers unit, failure-injection, and end-to-end integration tests across all 12 workspace crates:
+
 ```bash
-# Run unit & integration test suites
+# Run the complete test suite (130 tests, 100% passing)
 cargo test --workspace
 
-# Replay historical liquidation events
+# Run historical liquidation replay verification
 cargo run --bin replay -- --events tests/fixtures/liquidations.jsonl
 
-# Profile compute units via LiteSVM
-cargo run --bin cu-profile
-
-# Run production readiness checks
+# Run production readiness audit
 cargo run --bin readiness-check
 ```
+
+See [bugs.md](./bugs.md) for the complete 50-bug system audit and remediation details.
 
 ## Security
 

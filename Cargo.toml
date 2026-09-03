@@ -1,6 +1,19 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = [
+    "crates/core",
+    "crates/config",
+    "crates/strategy",
+    "crates/bundler",
+    "crates/store",
+    "crates/router",
+    "crates/submit",
+    "crates/ingestion",
+    "crates/treasury",
+    "crates/health",
+    "crates/sim",
+    "crates/gyrfalcon-bin",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -36,12 +49,14 @@ bs58 = "0.5"
 base64 = "0.22"
 bincode = "1"
 fixed = "1"
-solana-sdk = "2"
+solana-sdk = "=2.0.25"
 solana-pubkey = "2"
-solana-program = "1.18"
-litesvm = "0.7.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-axum = "0.7"
+solana-program = "=2.0.25"
+reqwest = { version = "0.12", default-features = false, features = ["json", "default-tls"] }
+axum = { version = "0.7", features = ["ws"] }
+
+[patch."https://github.com/solendprotocol/solana-program-library.git"]
+solend-sdk = { path = "patches/solend-sdk" }
 
 
 # Profile tuned for a latency-sensitive hot path once real logic lands (Stage B+).

@@ -19,6 +19,7 @@ solana-pubkey.workspace = true
 # real struct fields traced from source. Apache-2.0.
 solend-sdk = { git = "https://github.com/solendprotocol/solana-program-library.git", rev = "d04ce00bbf4356c4fd32b3be38eb9760b696bb3e", package = "solend-sdk" }
 solana-program.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 bytemuck = { version = "1", features = ["derive"] }

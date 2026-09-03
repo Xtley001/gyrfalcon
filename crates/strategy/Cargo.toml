@@ -8,4 +8,8 @@ description = "Sizing, arbitration, static tip floor, and treasury checks — do
 [dependencies]
 gyrfalcon-core.workspace = true
 gyrfalcon-config.workspace = true
+gyrfalcon-bundler.workspace = true
+solana-sdk.workspace = true
+tracing.workspace = true
 thiserror.workspace = true
+bincode.workspace = true

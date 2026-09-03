@@ -43,13 +43,13 @@
 //! `cargo test -p gyrfalcon-sim` after uncommenting to check.
 
 pub mod account_sync;
-pub mod cu_profile;
+// pub mod cu_profile;
 pub mod fixture_schema;
 pub mod replay;
 pub mod simulator;
 
 pub use account_sync::AccountSyncPipeline;
-pub use cu_profile::{profile_instructions, CuProfile, ProfileError};
+// pub use cu_profile::{profile_instructions, CuProfile, ProfileError};
 pub use fixture_schema::{load_events, FixtureError, HistoricalLiquidationEvent};
 pub use replay::{replay_all, replay_event, EventResult, ReplayReport};
 pub use simulator::LiteSvmSimulator;

@@ -37,7 +37,8 @@ pub const STATIC_TIP_FLOOR_USD: f64 = 0.0;
 pub fn static_tip_bid(bonus_usd: f64, risk: &RiskConfig) -> f64 {
     let ceiling = (risk.max_tip_pct_of_bonus * bonus_usd).min(risk.max_tip_per_tx_usd);
     let floor = risk.min_tip_usd.max(STATIC_TIP_FLOOR_USD);
-    floor.clamp(0.0, ceiling.max(0.0))
+    let competitive = risk.max_tip_pct_of_bonus * bonus_usd;
+    competitive.max(floor).clamp(0.0, ceiling.max(0.0))
 }
 
 #[cfg(test)]
