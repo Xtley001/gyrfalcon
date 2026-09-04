@@ -95,7 +95,7 @@ cargo run --bin replay -- --events tests/fixtures/liquidations.jsonl
 cargo run --bin readiness-check
 ```
 
-See [bugs.md](./bugs.md) for the complete 50-bug system audit and remediation details.
+See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes and remediation history.
 
 ## Security
 
