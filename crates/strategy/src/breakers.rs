@@ -200,8 +200,9 @@ mod tests {
             state.allows(Protocol::Kamino, route(1)),
             BreakerCheck::Halted(BreakerReason::SyncLag)
         );
+        state.set_protocol_sync_lag_halted(Protocol::Kamino, false);
         assert_eq!(
-            state.allows(Protocol::Save, route(1)),
+            state.allows(Protocol::Kamino, route(1)),
             BreakerCheck::Allowed
         );
     }
@@ -215,7 +216,7 @@ mod tests {
             BreakerCheck::Halted(BreakerReason::Drawdown)
         );
         assert_eq!(
-            state.allows(Protocol::Save, route(2)),
+            state.allows(Protocol::Kamino, route(2)),
             BreakerCheck::Halted(BreakerReason::Drawdown)
         );
     }

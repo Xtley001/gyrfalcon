@@ -11,12 +11,11 @@ use axum::response::{Html, IntoResponse, Json};
 use axum::routing::get;
 use axum::Router;
 use clap::Parser;
-use futures_util::{SinkExt, StreamExt};
 use gyrfalcon_bundler::alt_manager::AltManager;
 use gyrfalcon_config::{Config, SubmitMode};
 use gyrfalcon_core::traits::{AccountUpdate, HealthAdapter, Simulator, Submitter};
 use gyrfalcon_core::types::{LiquidationRecord, SubmitOutcome};
-use gyrfalcon_health::{KaminoAdapter, MarginfiAdapter, SaveAdapter};
+use gyrfalcon_health::KaminoAdapter;
 use gyrfalcon_ingestion::{DecoderRegistry, GeyserFeed, RingBuffer};
 use gyrfalcon_router::MultiSourceRouter;
 use gyrfalcon_sim::LiteSvmSimulator;
@@ -33,7 +32,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(name = "gyrfalcon", version, about = "Multi-protocol Solana Liquidation Engine")]
+#[command(name = "gyrfalcon", version, about = "Kamino Lend Solana Liquidation Engine")]
 struct Cli {
     /// Path to config/gyrfalcon.toml.
     #[arg(long, default_value = "config/gyrfalcon.toml")]
@@ -77,16 +76,12 @@ pub struct DashboardState {
     pub current_slot: u64,
     pub tracked_positions: usize,
     pub kamino_positions: usize,
-    pub save_positions: usize,
-    pub marginfi_positions: usize,
     pub breach_candidates_detected: u64,
     pub liquidations_attempted: u64,
     pub liquidations_landed: u64,
     pub liquidations_reverted: u64,
     pub total_net_profit_usd: f64,
     pub sync_lag_kamino: u64,
-    pub sync_lag_save: u64,
-    pub sync_lag_marginfi: u64,
     pub circuit_breaker_active: bool,
     pub recent_liquidations: Vec<LiquidationSummary>,
 }
@@ -123,17 +118,10 @@ async fn main() -> ExitCode {
         }
     };
 
-    let mode = if cli.halt {
+    let mode = effective_mode(&cli, config.submit.mode);
+    if cli.halt {
         tracing::warn!("Manual kill-switch (--halt) requested. Forcing OBSERVE mode.");
-        SubmitMode::Observe
-    } else if let Some(cli_mode) = cli.mode {
-        match cli_mode {
-            CliMode::Observe => SubmitMode::Observe,
-            CliMode::Live => SubmitMode::Live,
-        }
-    } else {
-        config.submit.mode
-    };
+    }
 
     tracing::info!(mode = %mode, "Engine execution mode configured");
 
@@ -171,22 +159,16 @@ async fn main() -> ExitCode {
     let log_path = PathBuf::from("data/liquidation_log.jsonl");
     let (async_log, _writer_handle) = AsyncLiquidationWriter::spawn(log_path, 4096);
 
-    // Initialize Adapters
+    // Initialize Adapters - Kamino only per 01_PROTOCOLS.md
     let mut kamino = KaminoAdapter::new();
-    let mut save = SaveAdapter::new();
-    let mut marginfi = MarginfiAdapter::new();
 
     // Helper to convert Solana SDK Pubkey to Gyrfalcon Core Pubkey
     let to_core_pk = |p: solana_sdk::pubkey::Pubkey| gyrfalcon_core::pubkey::Pubkey::new(p.to_bytes());
     let kamino_pid = to_core_pk(gyrfalcon_bundler::programs::kamino_program_id());
-    let save_pid = to_core_pk(gyrfalcon_bundler::programs::save_program_id());
-    let marginfi_pid = to_core_pk(gyrfalcon_bundler::programs::marginfi_program_id());
 
     // Ingestion decoder registry
     let mut registry = DecoderRegistry::new();
     registry.watch(kamino_pid);
-    registry.watch(save_pid);
-    registry.watch(marginfi_pid);
 
     // Flash Router, Simulator, ALT Manager & Breakers
     let router = MultiSourceRouter::new();
@@ -222,13 +204,8 @@ async fn main() -> ExitCode {
         if let Ok(mut state) = dashboard_state.write() {
             state.current_slot = slot_counter;
             state.kamino_positions = kamino.position_count();
-            state.save_positions = save.position_count();
-            state.marginfi_positions = marginfi.position_count();
-            state.tracked_positions =
-                state.kamino_positions + state.save_positions + state.marginfi_positions;
+            state.tracked_positions = state.kamino_positions;
             state.sync_lag_kamino = kamino.sync_lag_slots();
-            state.sync_lag_save = save.sync_lag_slots();
-            state.sync_lag_marginfi = marginfi.sync_lag_slots();
         }
 
         // Decode account update
@@ -243,13 +220,9 @@ async fn main() -> ExitCode {
             slot: raw_acc.slot,
         };
 
-        // Dispatch to appropriate adapter
+        // Dispatch to Kamino adapter
         let candidate_opt = if update.owner == kamino_pid {
             kamino.on_account_update(update)
-        } else if update.owner == save_pid {
-            save.on_account_update(update)
-        } else if update.owner == marginfi_pid {
-            marginfi.on_account_update(update)
         } else {
             None
         };

@@ -24,8 +24,8 @@ pub use breakers::{BreakerCheck, BreakerReason, BreakerState, RouteKey};
 pub use dynamic_tip::{CalibrationError, ContentionModel, ObserveRecord, TipCurve};
 pub use sizing::{
     size_and_route, size_position, size_position_stepped, size_position_with_feasibility,
-    BindingConstraint, DynamicRoute, RouteFeasibilityProvider, SizingDecision, StaticRoute,
-    MAX_TX_CU,
+    BindingConstraint, DynamicRoute, GasRegime, RouteFeasibilityProvider, SizingDecision,
+    StaticRoute, MAX_TX_CU,
 };
 pub use tip::{static_tip_bid, STATIC_TIP_FLOOR_USD};
 pub use treasury_check::{SlotBudget, TreasuryDecision};

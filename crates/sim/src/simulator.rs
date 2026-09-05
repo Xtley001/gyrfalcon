@@ -141,7 +141,7 @@ mod tests {
         let sim = LiteSvmSimulator::new();
 
         let candidate = BreachCandidate {
-            protocol: Protocol::Save,
+            protocol: Protocol::Kamino,
             position_id: Pubkey([1u8; 32]),
             collateral_mint: Pubkey([2u8; 32]),
             debt_mint: Pubkey([3u8; 32]),
@@ -154,7 +154,7 @@ mod tests {
             candidate,
             repay_amount: 500_000,
             flash_source: FlashSource {
-                protocol: Protocol::Save,
+                protocol: Protocol::Kamino,
                 reserve: Pubkey([4u8; 32]),
                 fee_bps: 0,
             },

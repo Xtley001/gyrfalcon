@@ -35,12 +35,6 @@ sweep_interval   = "1h"    # PLACEHOLDER — tune to your settlement cadence
 [protocols.kamino]
 enabled = true
 
-[protocols.save]
-enabled = true
-
-[protocols.marginfi]
-enabled = true
-
 [submit]
 mode          = "observe"  # always start here — see docs/RUNBOOK.md#deployment-phases
 leaders_ahead = 2

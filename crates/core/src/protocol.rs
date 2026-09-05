@@ -1,24 +1,21 @@
 //! Enums shared across every crate.
+//!
+//! Protocol enum decision locked in Step 0 of docs/07_BUILD_ORDER.md:
+//! Single-variant Kamino only; Save and MarginFi variants removed per migration directive.
 
-/// The three lending markets `gyrfalcon` covers.
+/// The single lending market `gyrfalcon` covers (Kamino Lend only).
 ///
-/// Build order (docs/BUILD_ORDER.md): Kamino ships alone in Stage B, then
-/// Save and MarginFi are added in Stage C. All three variants exist from
-/// Stage A so downstream types compile, even though only `Kamino` has a
-/// real adapter until Stage C.
+/// Migration rework (docs/07_BUILD_ORDER.md Step 0): Protocol retains only
+/// `Kamino`. Save and MarginFi are removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Protocol {
     Kamino,
-    Save,
-    MarginFi,
 }
 
 impl std::fmt::Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             Protocol::Kamino => "kamino",
-            Protocol::Save => "save",
-            Protocol::MarginFi => "marginfi",
         };
         write!(f, "{s}")
     }

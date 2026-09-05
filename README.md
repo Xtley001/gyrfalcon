@@ -1,110 +1,109 @@
 # gyrfalcon
 
-A multi-protocol Solana liquidation engine covering Kamino, Save, and MarginFi.
+A deterministic zero-capital liquidation engine for Kamino Lend on Solana.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Xtley001/gyrfalcon/ci.yml?branch=main)](https://github.com/Xtley001/gyrfalcon/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Rust: 2021/2024](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org)
 [![Security Policy](https://img.shields.io/badge/security-policy-green.svg)](./SECURITY.md)
+[![Docs](https://img.shields.io/badge/docs-spec-blue.svg)](./docs/ARCHITECTURE.md)
 
-`gyrfalcon` is an ultra-low-latency liquidation engine engineered for Solana's primary lending markets (**Kamino Lend**, **Save / Solend**, and **MarginFi v2**). It unifies Yellowstone gRPC streaming, in-memory account decoding, zero-risk flash loan routing, in-process LiteSVM transaction simulation, and parallel dual-path submission (Staked QUIC + Jito Block Engine).
+`gyrfalcon` monitors Kamino Lend obligations via sub-millisecond Yellowstone Geyser gRPC streaming and executes zero-capital liquidations. It combines zero-copy account decoding, zero-fee flash borrowing (Kamino native with Solend fallback), in-process LiteSVM transaction verification, and dual-path execution across Staked QUIC and the Jito Block Engine. For the theoretical framework, mathematical proofs, and mechanism derivations, see the [whitepaper](./docs/whitepaper.md).
+
+## Installation
+
+```bash
+git clone https://github.com/Xtley001/gyrfalcon.git
+cd gyrfalcon
+cargo build --release
+```
 
 ## Quickstart
 
 ```bash
-# Clone and build workspace
-git clone https://github.com/Xtley001/gyrfalcon.git
-cd gyrfalcon
-cargo build --release
-
-# Configure environment
+# Copy example configuration and verify environment readiness
 cp config/gyrfalcon.example.toml config/gyrfalcon.toml
+cargo run --release --bin readiness-check -- --config config/gyrfalcon.toml
 
-# Run in observe mode (zero capital at risk)
+# Start the daemon in observation mode (zero capital at risk)
 cargo run --release -- --config config/gyrfalcon.toml --mode observe
+```
+
+## Usage
+
+```bash
+# Run historical liquidation replay against test fixtures
+cargo run --release --bin replay -- --events tests/fixtures/liquidations.jsonl
+
+# Start daemon in production execution mode with local dashboard
+cargo run --release -- --config config/gyrfalcon.toml --mode live
 ```
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    G["Yellowstone Geyser gRPC<br/>(Raw Account Updates)"] --> I["Ingestion & Zero-Copy Decoders<br/>(Lock-free Ring Buffer)"]
-    I --> H{"Health Adapters"}
-    H -->|klend-interface| KA["Kamino Adapter"]
-    H -->|solend-sdk| SA["Save Adapter"]
-    H -->|marginfi-v2| MA["MarginFi Adapter"]
-    KA & SA & MA --> ST["Deterministic Strategy<br/>(Sizing & Tip Arbitration)"]
-    ST --> R["Flash-Source Router<br/>(Mint-Keyed Liquidity)"]
-    R --> S["In-Process LiteSVM Simulation<br/>(CU & Feasibility Verification)"]
-    S -->|Profitable & Feasible| B["Bundle Builder & ALT Manager<br/>(v0 Versioned Transactions)"]
-    B -->|Staked QUIC| D1["TPU Leader Sockets"]
-    B -->|Jito JSON-RPC| D2["Jito Block Engine"]
-    D1 & D2 --> OUT["Landed / Reverted Outcome"]
-    OUT --> LOG["Async Liquidation Log & Position Store"]
-    OUT -.Feedback.-> ST
+```
+gyrfalcon/
+├── crates/
+│   ├── core/         # Domain primitives, Protocol enum, trait contracts, Pubkey
+│   ├── config/       # Strict TOML schema and runtime configuration validation
+│   ├── health/       # Kamino obligation decoders and health factor breach engine
+│   ├── ingestion/    # Yellowstone Geyser gRPC streaming client and dispatch ring
+│   ├── router/       # Multi-source flash loan routing and 4-venue DEX router
+│   ├── strategy/     # Position sizing, dynamic tip curves, and circuit breakers
+│   ├── sim/          # LiteSVM in-process simulation and historical replay engine
+│   ├── bundler/      # Instruction packing, Token-2022 handling, and ALT manager
+│   ├── submit/       # Parallel Staked QUIC leader sockets and Jito bundle transport
+│   ├── treasury/     # PnL accounting ledger, wallet floor guards, profit sweep
+│   ├── store/        # In-memory position book and non-blocking JSONL audit writer
+│   └── gyrfalcon-bin/# Orchestrator daemon runtime and embedded dashboard server
+├── config/           # Example configuration templates (mainnet, devnet)
+├── deploy/           # Production systemd service units and container configs
+├── docs/             # Technical specifications, whitepaper, and operations runbook
+└── tests/            # Integration tests and historical fixture datasets
 ```
 
-## Workspace Crates
+For complete pipeline data flow and state machine specifications, see [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
-| Crate | Path | Responsibility |
-|---|---|---|
-| `gyrfalcon-core` | `crates/core` | Core domain types, protocol enums, trait interfaces, and 32-byte Pubkey |
-| `gyrfalcon-config` | `crates/config` | Strict TOML configuration schemas, risk parameters, and endpoint validation |
-| `gyrfalcon-health` | `crates/health` | Protocol obligation decoders and health factor breach calculation |
-| `gyrfalcon-ingestion`| `crates/ingestion` | Yellowstone Geyser gRPC streaming client and zero-copy account dispatch |
-| `gyrfalcon-router` | `crates/router` | Mint-keyed multi-source flash loan routing and fee evaluation |
-| `gyrfalcon-strategy`| `crates/strategy` | Position sizing, dynamic tip bidding, and 4-tier circuit breaker engine |
-| `gyrfalcon-sim` | `crates/sim` | LiteSVM in-process simulation harness, replay engine, and CU profiling |
-| `gyrfalcon-bundler` | `crates/bundler` | Liquidation/swap instruction building, Token-2022 support, and ALT manager |
-| `gyrfalcon-submit` | `crates/submit` | Dual-path submission engine (Staked QUIC + Jito Block Engine bundles) |
-| `gyrfalcon-treasury`| `crates/treasury`| Wallet floor monitoring, PnL ledger, and automated profit sweep |
-| `gyrfalcon-store` | `crates/store` | In-memory position book and non-blocking asynchronous JSONL logger |
-| `gyrfalcon` | `crates/gyrfalcon-bin` | Multi-threaded orchestrator daemon and embedded dashboard server |
+## Protocol & Market Reference
 
-## Supported Protocols
-
-| Protocol | Program ID | Mechanism | Flash Loan Support |
+| Target | Identifier | Role | Fee / Threshold |
 |---|---|---|---|
-| **Kamino Lend** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | `klend-interface 0.6` | Native Flash Borrow / Repay (`0x87e7...`, `0xb975...`) |
-| **Save (Solend)**| `So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo` | `solend-sdk 2.0` | Native Reserve Flash Borrow / Repay (Tags 14 & 15) |
-| **MarginFi v2** | `MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA` | `marginfi-type-crate`| Native Atomic Flash Borrow / Repay (`0x047e...`, `0x4fd1...`) |
+| **Kamino Lend Program** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | Primary Lending Protocol | Discriminator `0xb1479abce2854a37` |
+| **Kamino Main Market** | `7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF` | SOL / USDC Lending Market | 85% Liquidation Threshold |
+| **Kamino JitoSOL Pool** | `ByYi7nyNQwt5MtG65EHf2N4zpFg46Pchkd1898k7ygFa` | JitoSOL / SOL Correlated Pool | 95% Liquidation Threshold |
+| **Kamino Flash Borrow** | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | Primary Capital Source | 0.00% Fee (12,000 CU) |
+| **Solend Flash Borrow** | `So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo` | Fallback Capital Source | 0.00% Fee (15,000 CU) |
 
 ## Supported DEX Venues
 
-| Venue | Program ID | Model | Routing Priority |
+| Venue | Program ID | Model | Supported Pairs |
 |---|---|---|---|
-| **Phoenix** | `PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY` | Crankless On-Chain CLOB | Preferred on high-volume pairs (zero curve slippage) |
-| **Raydium CLMM** | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | Concentrated Liquidity AMM | Direct venue with full tick array traversal |
-| **Raydium CPMM** | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | Constant Product AMM | Direct venue with pool state vaults |
-| **Meteora DLMM** | `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo` | Dynamic Bin Liquidity | Direct venue with active bin arrays |
-| **Orca Whirlpools**| `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` | Concentrated Liquidity AMM | Direct venue with tick arrays and oracle |
-| **Jupiter v6** | `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4` | Meta-Aggregator | Safe fallback when direct pools lack sufficient depth |
+| **Orca Whirlpool** | `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` | Concentrated Liquidity AMM | `SOL / USDC` |
+| **Raydium CLMM** | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | Concentrated Liquidity AMM | `SOL / USDC` |
+| **Sanctum** | `5ocnV1qiCgaQR8Jb8xWnVbApNzpWCDveWUig21uT3J9z` | LST Stake Router / Infinity Pool | `JitoSOL / SOL` |
+| **Marinade** | `MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD` | Liquid Staking Pool | `mSOL / SOL` |
 
-## Testing & Verification
-
-The test suite covers unit, failure-injection, and end-to-end integration tests across all 12 workspace crates:
+## Testing
 
 ```bash
-# Run the complete test suite (130 tests, 100% passing)
+# Run unit and integration test suite across all 12 workspace crates
 cargo test --workspace
 
-# Run historical liquidation replay verification
+# Run historical replay validation against recorded market events
 cargo run --bin replay -- --events tests/fixtures/liquidations.jsonl
 
-# Run production readiness audit
-cargo run --bin readiness-check
+# Validate environment connectivity and configuration
+cargo run --bin readiness-check -- --config config/gyrfalcon.example.toml
 ```
-
-See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes and remediation history.
 
 ## Security
 
-Report suspected vulnerabilities according to our [Security Policy](./SECURITY.md). Test all integrations thoroughly in observe mode before deploying live capital.
+Report vulnerabilities per our [Security Policy](./SECURITY.md). Test all deployments in observe mode prior to committing live capital.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines, development setup, and code standards.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development environment setup, code style standards, and pull request workflows.
 
 ## License
 
-Licensed under the [MIT License](./LICENSE).
+Released under the [MIT License](./LICENSE).

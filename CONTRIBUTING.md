@@ -1,8 +1,10 @@
 # Contributing
 
-Guidelines for contributing to `gyrfalcon`.
+Development guidelines and standards for `gyrfalcon`.
 
 ## Development Setup
+
+Prerequisites: Rust 1.81+, Solana CLI 2.x, and a local or remote Yellowstone Geyser gRPC endpoint.
 
 ```bash
 git clone https://github.com/Xtley001/gyrfalcon.git
@@ -11,26 +13,35 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Format and lint before opening a pull request:
+Verify formatting and linting prior to committing:
 
 ```bash
-cargo fmt --all
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-## Adapter & Execution Rules
+## Architectural Standards
 
-- **Zero-Copy Deserialization**: Use `bytemuck` and raw struct casting where account layouts allow.
-- **Oracle Validation**: Handle oracle staleness and confidence bounds strictly per protocol.
-- **Fault Isolation**: Panic or error in one adapter must never impact other protocol pipelines.
-- **In-Process Hot Path**: The execution pipeline (`Ingestion → Health → Strategy → Sim → Bundler`) must remain non-blocking and in-process.
+- **Zero-Copy Deserialization**: Decode on-chain account data with zero allocations using `bytemuck` or fixed binary offsets. Never allocate intermediate objects on the hot path.
+- **Deterministic Simulation**: All execution paths must clear in-process LiteSVM verification before signing. No transaction may be submitted optimistically without prior simulation.
+- **Fault Isolation**: Health decoders and submission threads must isolate panics. Failures in one market or route must trigger circuit breakers rather than destabilizing the daemon process.
+- **Asynchronous Hot Path**: The pipeline from Yellowstone ingestion to submission must avoid disk I/O and blocking locks. Logging is offloaded to `gyrfalcon-store` via bounded mpsc channels.
 
-## Pull Requests
+## Pull Request Process
 
-- Keep PRs focused on single logical changes.
-- Ensure all unit tests and simulation checks pass.
-- Update `CHANGELOG.md` with every user-facing change.
+1. Create a descriptive feature branch (`git checkout -b feature/sanctum-slippage-optimization`).
+2. Implement changes with corresponding unit tests or fixture updates in `tests/fixtures/`.
+3. Verify the full workspace passes tests, replay simulation, and lints:
+   ```bash
+   cargo test --workspace
+   cargo run --bin replay -- --events tests/fixtures/liquidations.jsonl
+   ```
+4. Update [CHANGELOG.md](./CHANGELOG.md) under the `[Unreleased]` section.
+5. Open a pull request with a concise description of performance or correctness impacts.
 
-## Commit style
+## Commit Style
 
-Use present-tense, imperative subject lines under ~72 characters (`add MarginFi oracle confidence check`). Reference the issue number where one exists.
+Use concise, present-tense imperative subject lines under 72 characters:
+- `add Sanctum stake route dynamic quote validation`
+- `fix Kamino obligation liquidity calculation for Token-2022`
+- `update LiteSVM simulation hurdle rate to $8.50 floor`

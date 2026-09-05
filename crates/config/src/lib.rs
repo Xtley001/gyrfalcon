@@ -60,8 +60,6 @@ pub struct TreasuryConfig {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ProtocolsConfig {
     pub kamino: ProtocolToggle,
-    pub save: ProtocolToggle,
-    pub marginfi: ProtocolToggle,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -176,8 +174,6 @@ mod tests {
         let config = Config::load(&path).expect("example config should parse and validate");
         assert_eq!(config.submit.mode, SubmitMode::Observe);
         assert!(config.protocols.kamino.enabled);
-        assert!(config.protocols.save.enabled);
-        assert!(config.protocols.marginfi.enabled);
         assert_eq!(config.risk.consecutive_revert_limit, 3);
     }
 
@@ -186,7 +182,6 @@ mod tests {
         let path = repo_root().join("config/gyrfalcon.devnet.toml");
         let config = Config::load(&path).expect("devnet config should parse and validate");
         assert_eq!(config.submit.mode, SubmitMode::Live);
-        assert!(!config.protocols.marginfi.enabled);
     }
 
     #[test]
@@ -195,8 +190,6 @@ mod tests {
         let prod_config = Config::load(&prod_path).expect("production config should parse and validate");
         assert_eq!(prod_config.submit.mode, SubmitMode::Observe);
         assert!(prod_config.protocols.kamino.enabled);
-        assert!(prod_config.protocols.save.enabled);
-        assert!(prod_config.protocols.marginfi.enabled);
 
         let example_path = repo_root().join("config/gyrfalcon.example.toml");
         let example_config = Config::load(&example_path).expect("example config should parse");

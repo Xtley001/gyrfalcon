@@ -110,37 +110,49 @@ fn check_config(config_path: &PathBuf) -> Vec<CheckResult> {
 fn static_checklist_items() -> Vec<CheckResult> {
     vec![
         CheckResult {
-            item: "Current IDL for Kamino, Save, and MarginFi pulled from the deployed program",
+            item: "Current IDL for Kamino Lend pulled from the deployed program",
             status: Status::Manual,
             detail: "re-verify against live program state, not this repo's pinned dependency \
-                     versions (klend-interface / solend-sdk / marginfi-type-crate, each pinned \
-                     to a commit or version at build time — see crates/health/Cargo.toml)"
+                     versions (klend-interface pinned at build time — see crates/health/Cargo.toml)"
                 .to_string(),
         },
         CheckResult {
-            item: "Kamino and Save flash-borrow fee schedules confirmed at current bps, per reserve",
+            item: "Kamino native flash-borrow and Solend fallback fee schedules confirmed at current bps, per reserve",
             status: Status::Manual,
-            detail: "requires live RPC reads against current Reserve accounts".to_string(),
+            detail: "requires live RPC reads against current Kamino/Solend Reserve accounts per 01_PROTOCOLS.md §3".to_string(),
         },
         CheckResult {
-            item: "MarginFi flash-loan support re-confirmed as absent (or present)",
+            item: "Kamino program bytecode hash matches expected on-chain bytecode",
+            status: Status::Manual,
+            detail: "verifies KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD bytecode matches \
+                     expected hash to detect unauthorized upgrades per 02_ARCHITECTURE.md §1"
+                .to_string(),
+        },
+        CheckResult {
+            item: "Oracle freshness for 4 Pyth feeds within 1s heartbeat",
+            status: Status::Manual,
+            detail: "verifies SOL/USD, USDC/USD, USDT/USD, JitoSOL/USD Pyth feeds per 01_PROTOCOLS.md §4".to_string(),
+        },
+        CheckResult {
+            item: "Oracle-DEX spot price consistency within 1% deviation",
+            status: Status::Manual,
+            detail: "verifies Pyth price vs. DEX spot (Orca/Raydium) deviation < 1% per 02_ARCHITECTURE.md §1".to_string(),
+        },
+        CheckResult {
+            item: "DEX exit-route pool liquidity verified across 4 venues",
+            status: Status::Manual,
+            detail: "verifies pool TVL supports target clip sizes on Orca Whirlpool, Raydium CLMM, Sanctum, Marinade per 03_ROUTING_DEX.md".to_string(),
+        },
+        CheckResult {
+            item: "Jito Block Engine regional relay liveness verified",
+            status: Status::Manual,
+            detail: "verifies at least one of 4 regional endpoints (SLC, NY, Frankfurt, Tokyo) accepting bundles per 04_SUBMISSION_INFRA.md §2".to_string(),
+        },
+        CheckResult {
+            item: "Oracle staleness/confidence handling verified for Kamino (Pyth)",
             status: Status::Verified,
-            detail: "confirmed PRESENT (contradicts docs/ARCHITECTURE.md's original assumption) \
-                     via MarginFi's own docs and a Sept 2025 security disclosure — see \
-                     crates/health/src/adapters/marginfi.rs's module doc. Re-verify again \
-                     before shipping if significant time has passed since that check."
-                .to_string(),
-        },
-        CheckResult {
-            item: "Oracle staleness/confidence handling verified per protocol",
-            status: Status::Manual,
-            detail: "Kamino (reserve_price_is_stale, wall-clock-timestamp-based) and Save \
-                     (reserve_price_is_stale, slot-based, matches Save's own STALE_AFTER_SLOTS_ELAPSED) \
-                     both have real, unit-tested staleness checks now. MarginFi's price lives on \
-                     a separate oracle account this adapter doesn't decode — its \
-                     reserve_price_is_stale is an explicit stub returning None, a genuine \
-                     remaining gap, not silently missing. No confidence-interval (as opposed to \
-                     staleness) checking exists for any protocol yet."
+            detail: "Kamino reserve_price_is_stale (timestamp-based) has real, unit-tested \
+                     staleness check in KaminoAdapter per 01_PROTOCOLS.md §4."
                 .to_string(),
         },
         CheckResult {

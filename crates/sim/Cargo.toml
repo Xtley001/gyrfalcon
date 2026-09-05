@@ -23,11 +23,6 @@ clap.workspace = true
 [[bin]]
 name = "replay"
 path = "src/bin/replay.rs"
-
-# [[bin]]
-# name = "cu-profile"
-# path = "src/bin/cu-profile.rs"
-
 [[bin]]
 name = "export-fixtures"
 path = "src/bin/export_fixtures.rs"

@@ -15,20 +15,4 @@ gyrfalcon-core.workspace = true
 # note in kamino.rs.
 klend-interface = "0.6"
 solana-pubkey.workspace = true
-# Save's own SDK crate (Apache-2.0, unrestricted) — Save is Solend rebranded,
-# same program (So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo) and same
-# solendprotocol/solana-program-library source tree. See save.rs's module doc.
-# NOT the crates.io "solend-sdk" (that published crate is stale — 0.1.0,
-# predating current on-chain account-layout fields like scaled_price_offset_bps
-# and the rate limiter; verified by its solana-program <1.15 constraint). Using
-# a git dependency pinned to the current mainnet branch instead, matching the
-# real struct fields traced from source. Apache-2.0.
-solend-sdk = { git = "https://github.com/solendprotocol/solana-program-library.git", rev = "d04ce00bbf4356c4fd32b3be38eb9760b696bb3e", package = "solend-sdk" }
-# marginfi's own account-layout crate. NOT published on crates.io (verified
-# via web search — an earlier assumption to the contrary was wrong), so this
-# is a git dependency pinned to a specific commit rather than a version.
-# Apache-2.0. See marginfi.rs's module doc.
-marginfi-type-crate = { git = "https://github.com/mrgnlabs/marginfi-v2.git", rev = "4d57e2c234a41a868c519b722a6cce1c0431a699" }
-fixed.workspace = true
-solana-program.workspace = true
 bytemuck.workspace = true

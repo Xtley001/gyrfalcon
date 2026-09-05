@@ -1,35 +1,36 @@
 # Security Policy
 
+Security invariants, key custody requirements, and vulnerability reporting procedures for `gyrfalcon`.
+
 ## Supported Versions
 
-| Version | Supported |
-|---|---|
-| 0.1.x | Yes |
-| 1.0.x | Yes |
+| Version | Supported | Notes |
+|---|---|---|
+| `0.3.x` | Yes | Active production release (Kamino-only, 4 DEX venues) |
+| `0.2.x` | Critical security fixes only | Pre-consolidation multi-venue engine |
+| `< 0.2.0` | No | Deprecated |
 
 ## Reporting a Vulnerability
 
-Report suspected vulnerabilities privately by opening a [GitHub security advisory](https://github.com/Xtley001/gyrfalcon/security/advisories/new). Do not open a public issue for a security report. Expect an initial acknowledgment within a few days.
+Report suspected vulnerabilities privately via [GitHub Security Advisories](https://github.com/Xtley001/gyrfalcon/security/advisories/new). Do not open public issues for security vulnerabilities.
 
-Include, where possible: affected component, reproduction steps, and impact assessment.
+Submissions should include:
+- Affected component and commit hash.
+- Reproduction script, test case, or transaction payload.
+- Quantitative impact assessment (e.g. potential fund loss, execution revert loop, or denial of service).
 
-## Operational Security
+Expect an initial response and triage within 48 hours.
 
-`gyrfalcon` handles a signer keypair and submits transactions that move value. The following are treated as security requirements, not best-effort:
+## Operational Security Invariants
 
-- **Signer keys never enter version control.** `keypair_path` points outside the repo; committed config carries placeholders only.
-- **The account-sync pipeline is the single point of failure.** If it drifts stale, every decision is computed against a world that no longer exists. Staleness detection is mandatory; sync lag past threshold halts the affected adapter.
-- **Decoders are pinned to deployed IDLs.** A stale account layout produces silently wrong numbers, not a visible crash. Re-verify on every protocol upgrade.
-- **Simulation gates submission.** No transaction is submitted unless it clears LiteSVM against a slot-current account set and shows positive net profit.
+`gyrfalcon` manages transaction signing keypairs and authorizes flash-loan capital. The following rules are hard operational invariants:
 
-### Key custody
-
-A plain, unencrypted keypair file on the same box that runs the engine is the minimum viable setup for `observe` mode or devnet testing only. Before `live` mode with real capital, use one of: an OS-level encrypted keychain, a hardware security module (HSM), or a cloud KMS that releases the key to the signing process without ever writing it to disk in cleartext. The treasury wallet — smaller balance, more frequently accessed — can reasonably use a lighter-weight option than the signer identity key if the two are separated, but neither should be a bare JSON file on a shared or internet-facing host.
-
-### Dependency vetting
-
-The execution engine uses LiteSVM for in-process deterministic simulation. Always pin exact, audited release tags and run test harnesses before live deployment.
+- **Key Isolation**: Private keys must never be committed to source control or logged. In production, configure `identity.keypair_path` to an OS-encrypted credential store, hardware security module (HSM), or cloud KMS daemon.
+- **Account Sync Staleness**: If the Yellowstone Geyser stream falls behind the network tip by more than `risk.sync_lag_halt_slots` (default 5 slots), the engine halts all execution immediately to prevent executing on stale state.
+- **Simulation Gate**: Every liquidation bundle must pass in-process LiteSVM deterministic execution against the slot-current bank before signing. Unsimulated or failing transactions are discarded.
+- **Protocol IDL Validation**: Account decoders must match the deployed Anchor IDLs of Kamino Lend (`KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD`). Program upgrades trigger an immediate deployment verification check.
+- **Treasury Floor Protection**: If the executor wallet SOL balance drops below `risk.treasury_floor_sol`, trading halts and an operator alert is dispatched.
 
 ## Audit Status
 
-This codebase is open source and provided as-is. Conduct independent security audits before committing real liquidation capital.
+This codebase is open-source software provided under the MIT License. Conduct independent formal verification and comprehensive observe-mode testing prior to deploying live capital.

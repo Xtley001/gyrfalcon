@@ -3,7 +3,7 @@ name = "gyrfalcon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "A multi-protocol Solana liquidation bot covering Kamino, Save, and MarginFi."
+description = "A Solana liquidation bot for Kamino Lend."
 
 [[bin]]
 name = "gyrfalcon"

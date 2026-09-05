@@ -5,7 +5,7 @@
 //! **This file ships with zero real fixture data.** Per
 //! `tests/fixtures/README.md`, `liquidations.jsonl` is produced by "a
 //! one-time historical export step (pull real past liquidation events for
-//! Kamino, Save, and MarginFi from on-chain history)" — that step needs
+//! Kamino from on-chain history)" — that step needs
 //! live Solana RPC/archive access this environment does not have, and per
 //! `docs/DATA_POLICY.md` this codebase does not fabricate liquidation data
 //! to fill the gap. What's here is the harness that will consume that file

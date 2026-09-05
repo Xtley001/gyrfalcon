@@ -104,7 +104,7 @@ mod tests {
 
     // A generic fixed-layout struct used ONLY to prove the decode
     // mechanics (alignment, discriminator handling, length checks). This
-    // is NOT a Kamino/Save/MarginFi account layout — those are pinned to
+    // is NOT a Kamino account layout — those are pinned to
     // each program's live IDL in Stage B, per docs/BUILD_ORDER.md, and must
     // not be inferred or guessed here.
     #[repr(C)]

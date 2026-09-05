@@ -1,6 +1,6 @@
 //! ATA pre-provisioning — `docs/RUNBOOK.md`'s production readiness
 //! checklist item "ATA pre-provisioning complete for every mint
-//! combination across all three protocols."
+//! combination for Kamino Lend."
 //!
 //! Deriving an Associated Token Account's address is a pure, deterministic
 //! PDA computation (owner + token program + mint, against the fixed
@@ -9,8 +9,7 @@
 //! created* on-chain (which does need RPC, and is explicitly out of scope
 //! here — see [`AtaError`] doc and this module's `check_existence` note).
 //! Uses the official `spl-associated-token-account` crate rather than
-//! hand-deriving the PDA, same principle as every other protocol
-//! dependency in this codebase (`kamino.rs`, `save.rs`, `marginfi.rs`).
+//! hand-deriving the PDA.
 
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;

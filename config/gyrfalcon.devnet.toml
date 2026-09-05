@@ -30,12 +30,6 @@ sweep_interval   = "1h"
 [protocols.kamino]
 enabled = true
 
-[protocols.save]
-enabled = true
-
-[protocols.marginfi]
-enabled = false  # devnet deployments of MarginFi are inconsistent — verify before enabling
-
 [submit]
 mode          = "live"   # devnet capital only — see the caveat above
 leaders_ahead = 2

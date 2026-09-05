@@ -4,12 +4,9 @@
 //! stale accounts produces a confidently wrong answer, not a visible
 //! error.
 //!
-//! Scoped to Kamino accounts only for Stage B (`docs/BUILD_ORDER.md` item
-//! 7). This module is deliberately protocol-agnostic at the storage layer
-//! — it holds raw `(Pubkey -> (data, slot))` pairs — with protocol-specific
-//! decoding staying in `gyrfalcon-health`'s adapters, so Save/MarginFi
-//! extend this in Stage C by feeding it their own accounts, not by
-//! rewriting it.
+//! Scoped to Kamino accounts only. This module is protocol-agnostic at
+//! the storage layer — it holds raw `(Pubkey -> (data, slot))` pairs —
+//! with protocol-specific decoding staying in `gyrfalcon-health`'s Kamino adapter.
 
 use gyrfalcon_core::Pubkey;
 use std::collections::HashMap;

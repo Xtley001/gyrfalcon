@@ -11,7 +11,7 @@
 
 use clap::Parser;
 use gyrfalcon_core::Protocol;
-use gyrfalcon_health::{KaminoAdapter, MarginfiAdapter, SaveAdapter};
+use gyrfalcon_health::KaminoAdapter;
 use gyrfalcon_router::MultiSourceRouter;
 use gyrfalcon_sim::{load_events, replay_event, ReplayReport};
 use std::path::PathBuf;
@@ -46,16 +46,23 @@ fn main() -> ExitCode {
     }
 
     let mut kamino = KaminoAdapter::new();
-    let mut save = SaveAdapter::new();
-    let mut marginfi = MarginfiAdapter::new();
-    let router = MultiSourceRouter::new();
+    let mut router = MultiSourceRouter::new();
+
+    // Populate router with reserve info from each historical event
+    for event in &events {
+        router.add_reserve(
+            event.best_flash_reserve,
+            gyrfalcon_router::FlashProvider::Kamino,
+            event.debt_mint,
+            event.best_flash_reserve_available_liquidity,
+            Some(0), // Kamino native flash loan fee: 0 bps per 01_PROTOCOLS.md §3
+        );
+    }
 
     let mut results = Vec::with_capacity(events.len());
     for event in &events {
         let res = match event.protocol {
             Protocol::Kamino => replay_event(event, &mut kamino, &router),
-            Protocol::Save => replay_event(event, &mut save, &router),
-            Protocol::MarginFi => replay_event(event, &mut marginfi, &router),
         };
         results.push(res);
     }

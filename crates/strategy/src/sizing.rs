@@ -31,16 +31,77 @@ use solana_sdk::transaction::VersionedTransaction;
 pub const MAX_TX_CU: u32 = 1_400_000;
 
 /// The binding constraint that determined the final position size.
+///
+/// DECISION MADE: Venue max-clip depth constraint (03_ROUTING_DEX.md §3) is folded
+/// into the existing `FlashDepth` variant, keeping `BindingConstraint` a 4-variant enum
+/// ({CloseFactor, FlashDepth, ByteLimit, ComputeBudget}) per 05_STRATEGY_RISK.md §1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingConstraint {
     /// Bound by position's liquidation close factor ceiling.
     CloseFactor,
-    /// Bound by available liquidity depth in the chosen flash source.
+    /// Bound by available liquidity depth in the chosen flash source or DEX venue max-clip ceiling.
     FlashDepth,
     /// Bound by the 1232-byte serialized transaction limit.
     ByteLimit,
     /// Bound by the 1,400,000 compute unit transaction limit.
     ComputeBudget,
+}
+
+/// Gas regimes for transaction cost and minimum clip sizing per `01_PROTOCOLS.md §5`
+/// and `05_STRATEGY_RISK.md §2`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GasRegime {
+    Normal,
+    High,
+    Spike,
+}
+
+impl GasRegime {
+    /// Nominal transaction cost in USD for the regime.
+    pub fn tx_cost_usd(&self) -> f64 {
+        match self {
+            GasRegime::Normal => 0.0015,
+            GasRegime::High => 0.031,
+            GasRegime::Spike => 0.14,
+        }
+    }
+
+    /// Break-even debt in USD per `01_PROTOCOLS.md §5`.
+    ///
+    /// DECISION MADE: High regime has no populated break-even figure in source drop
+    /// `01_PROTOCOLS.md §5`. Returns `None` rather than fabricating numbers per `05_STRATEGY_RISK.md §2`.
+    pub fn break_even_debt_usd(&self) -> Option<f64> {
+        match self {
+            GasRegime::Normal => Some(0.02),
+            GasRegime::High => None,
+            GasRegime::Spike => Some(4.30),
+        }
+    }
+
+    /// Minimum position clip in USD per `01_PROTOCOLS.md §5`.
+    ///
+    /// DECISION MADE: High regime has blank min-clip in `01_PROTOCOLS.md §5`. Per `05_STRATEGY_RISK.md §2`,
+    /// we gate the High regime behind the conservative default of $250 min clip (matching Spike)
+    /// until empirical production figures are collected, avoiding synthetic fabrication.
+    pub fn min_clip_usd(&self) -> f64 {
+        match self {
+            GasRegime::Normal => 100.0,
+            GasRegime::High => 250.0, // Conservative default matching Spike
+            GasRegime::Spike => 250.0,
+        }
+    }
+
+    /// Net profit at min clip in USD per `01_PROTOCOLS.md §5`.
+    ///
+    /// DECISION MADE: High regime has blank net-profit in source drop `01_PROTOCOLS.md §5`.
+    /// Returns `None` rather than fabricating numbers per `05_STRATEGY_RISK.md §2`.
+    pub fn net_profit_at_min_clip_usd(&self) -> Option<f64> {
+        match self {
+            GasRegime::Normal => Some(5.00),
+            GasRegime::High => None,
+            GasRegime::Spike => Some(12.28),
+        }
+    }
 }
 
 /// Sizing outcome containing the final size, ALT usage, and step-down metrics.
@@ -142,7 +203,7 @@ pub fn size_and_route(
 
     let flash_source = router.route(candidate.debt_mint, repay_amount)?;
 
-    // Liquidation bonus: ~5% base bonus for Kamino/Save/MarginFi
+    // Liquidation bonus: ~5% base bonus for Kamino (01_PROTOCOLS.md §1)
     let bonus_rate = 0.05;
     let repay_scale = (repay_amount as f64) / 1_000_000.0;
     let bonus_usd = (repay_scale * bonus_rate * 20.0).max(12.0); // Baseline positive EV

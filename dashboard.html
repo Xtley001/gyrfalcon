@@ -187,19 +187,11 @@
 
     <!-- adapter health -->
     <div class="panel">
-      <h3>Adapter health <span class="hint">per protocol</span></h3>
+      <h3>Adapter health <span class="hint">Kamino Lend</span></h3>
       <div id="adapter-list">
         <div class="adapter" id="adapter-kamino">
           <div class="row"><span class="name"><i></i>Kamino Lend</span><span class="badge" id="badge-kamino">OFFLINE</span></div>
           <div class="row"><span class="meta" id="meta-kamino">awaiting feed</span><span class="meta" id="lag-kamino">—</span></div>
-        </div>
-        <div class="adapter" id="adapter-save">
-          <div class="row"><span class="name"><i></i>Save (Solend)</span><span class="badge" id="badge-save">OFFLINE</span></div>
-          <div class="row"><span class="meta" id="meta-save">awaiting feed</span><span class="meta" id="lag-save">—</span></div>
-        </div>
-        <div class="adapter" id="adapter-marginfi">
-          <div class="row"><span class="name"><i></i>MarginFi v2</span><span class="badge" id="badge-marginfi">OFFLINE</span></div>
-          <div class="row"><span class="meta" id="meta-marginfi">awaiting feed</span><span class="meta" id="lag-marginfi">—</span></div>
         </div>
       </div>
       <div style="padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--snow-faint)">
@@ -218,7 +210,7 @@
   </section>
 
   <footer>
-    <span>gyrfalcon · Kamino · Save · MarginFi — one engine, three ponds</span>
+    <span>gyrfalcon · Kamino Lend Liquidation Engine</span>
     <span><a href="./README.md">README</a> · <a href="./SECURITY.md">security</a> · <a href="./CONTRIBUTING.md">contributing</a> · <a href="./CHANGELOG.md">changelog</a></span>
   </footer>
 </main>
@@ -258,7 +250,7 @@
     document.getElementById('sub-profit').textContent = profit >= 0 ? 'realized net profit' : 'net loss';
 
     document.getElementById('v-positions').textContent = state.tracked_positions ?? 0;
-    document.getElementById('sub-positions').textContent = `${state.kamino_positions || 0} K / ${state.save_positions || 0} S / ${state.marginfi_positions || 0} M`;
+    document.getElementById('sub-positions').textContent = `${state.kamino_positions || 0} Kamino positions`;
 
     document.getElementById('v-breaches').textContent = state.breach_candidates_detected ?? 0;
     document.getElementById('sub-breaches').textContent = 'detected breaches';
@@ -300,8 +292,6 @@
     };
 
     updateAdapter('kamino', state.kamino_positions || 0, state.sync_lag_kamino || 0);
-    updateAdapter('save', state.save_positions || 0, state.sync_lag_save || 0);
-    updateAdapter('marginfi', state.marginfi_positions || 0, state.sync_lag_marginfi || 0);
 
     // Circuit Breakers
     const cbActive = state.circuit_breaker_active || false;
@@ -318,7 +308,7 @@
     updateCB('cb-revert', (state.liquidations_reverted || 0) >= (state.risk_consecutive_revert_limit || 2));
     updateCB('cb-treasury', cbActive);
     updateCB('cb-drawdown', profit < -(state.risk_max_drawdown_usd || 750));
-    updateCB('cb-synclag', (state.sync_lag_kamino || 0) >= 2 || (state.sync_lag_save || 0) >= 2 || (state.sync_lag_marginfi || 0) >= 2);
+    updateCB('cb-synclag', (state.sync_lag_kamino || 0) >= 2);
 
     // Recent Liquidations Table
     const listContainer = document.getElementById('liquidations-container');
